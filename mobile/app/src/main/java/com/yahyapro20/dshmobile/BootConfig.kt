@@ -34,7 +34,7 @@ object BootConfig {
         "https://skirsten.github.io/proot-portable-android-binaries/aarch64/proot"
 
     const val ROOTFS_URL =
-        "https://github.com/debuerreotype/docker-debian-artifacts/raw/dist-arm64/bookworm/rootfs.tar.xz"
+        "https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-generic-arm64.tar.xz"
 
     const val NODE_URL =
         "https://nodejs.org/dist/v22.19.0/node-v22.19.0-linux-arm64.tar.xz"
