@@ -11,8 +11,8 @@ android {
         applicationId = "com.yahyapro20.dshmobile"
         minSdk = 29
         targetSdk = 34
-        versionCode = 4
-        versionName = "0.4.0"
+        versionCode = 5
+        versionName = "0.5.0"
     }
 
     signingConfigs {
@@ -22,7 +22,7 @@ android {
                 storeFile = file(ksPath)
                 storePassword = System.getenv("CI_KEYSTORE_PASSWORD")
                 keyAlias = System.getenv("CI_KEY_ALIAS")
-                keyPassword = System.getenv("KEY_PASSWORD")
+                keyPassword = System.getenv("CI_KEY_PASSWORD") // حذف .orEmpty() برای جلوگیری از خطای Missing property
             }
         }
     }
@@ -30,7 +30,8 @@ android {
     buildTypes {
         release {
             isMinifyEnabled = false
-            signingConfig = if (System.getenv("CI_KEYSTORE_PATH") != null) {
+            val ksPath = System.getenv("CI_KEYSTORE_PATH")
+            signingConfig = if (ksPath != null) {
                 signingConfigs.getByName("release")
             } else {
                 signingConfigs.getByName("debug")
@@ -47,7 +48,7 @@ android {
     }
 
     buildFeatures {
-        viewBinding = true // این خط حیاتی است
+        viewBinding = false
     }
 }
 
@@ -56,9 +57,7 @@ dependencies {
     implementation("androidx.appcompat:appcompat:1.7.0")
     implementation("androidx.webkit:webkit:1.11.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.4")
-    implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.8.4")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
     implementation("org.apache.commons:commons-compress:1.26.1")
     implementation("org.tukaani:xz:1.9")
-    implementation("com.google.android.material:material:1.12.0")
 }
