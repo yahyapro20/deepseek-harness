@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="ds_primary">#4D6BFE</color>
+    <color name="ds_primary_pressed">#3B56D4</color>
+    <color name="ds_bg">#FFFFFF</color>
+    <color name="ds_bg_soft">#F7F8FA</color>
+    <color name="ds_text">#1F2329</color>
+    <color name="ds_text_secondary">#8F959E</color>
+    <color name="ds_border">#EBEDF0</color>
+
+    <style name="AppTheme" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/ds_bg</item>
+        <item name="android:statusBarColor">@color/ds_bg</item>
+        <item name="android:navigationBarColor">@color/ds_bg</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:colorAccent">@color/ds_primary</item>
+    </style>
+</resources>
