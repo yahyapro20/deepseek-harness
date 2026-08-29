@@ -192,12 +192,12 @@ class MainActivity : AppCompatActivity() {
         btnStartInstall.isEnabled = allReady
     }
 
-    private fun startInstallation() {
-        // Hide setup UI
-        findViewById<LinearLayout>(R.id.cardProot.parent as LinearLayout).visibility = View.GONE
+        private fun startInstallation() {
+        // Hide setup UI safely
+        val setupLayout = findViewById<View>(R.id.setupLayout)
+        setupLayout.visibility = View.GONE
+        
         cardProgress.visibility = View.VISIBLE
-        btnStartInstall.visibility = View.GONE
-        btnDownloadAll.visibility = View.GONE
 
         lifecycleScope.launch {
             try {
@@ -237,7 +237,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
     }
-
+    
     private fun observeProgress() {
         lifecycleScope.launch {
             HarnessState.status.collect { status ->
