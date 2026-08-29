@@ -13,7 +13,8 @@ data class DownloadProgress(
     val totalBytes: Long = 0L,
     val speedBytesPerSecond: Long = 0L,
     val etaSeconds: Long = 0L,
-    val percentage: Int = 0
+    val percentage: Int = 0,
+    val isResuming: Boolean = false
 )
 
 data class Status(
