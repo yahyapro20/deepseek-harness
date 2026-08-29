@@ -191,52 +191,109 @@ class BootstrapInstaller(private val context: Context) {
     }
 
     private suspend fun installNode(url: String) {
-        val nodeDir = File(rootfsDir(), BootConfig.NODE_DIR_NAME)
-        if (nodeDir.exists()) {
-            android.util.Log.i(TAG, "Node.js already installed")
-            return
-        }
+    val nodeDir = File(rootfsDir(), BootConfig.NODE_DIR_NAME)
+    if (nodeDir.exists()) {
+        android.util.Log.i(TAG, "Node.js already installed")
+        return
+    }
 
-        var lastError: Exception? = null
-        for (attempt in 1..MAX_RETRIES) {
-            try {
-                android.util.Log.i(TAG, "Downloading Node.js (attempt $attempt/$MAX_RETRIES)")
-                
-                val progress = DownloadProgress(fileName = "node.tar.xz", isResuming = File(context.cacheDir, "node-download.tar.xz").exists())
-                HarnessState.update(Phase.BOOTSTRAPPING, "Downloading Node.js runtime... (Attempt $attempt/$MAX_RETRIES)", downloadProgress = progress)
-                updateNotification(progress)
-                
-                val cached = getExternalCacheFile(BootConfig.LOCAL_NODE_FILENAME)
-                val archive: File = if (cached.exists() && FileUtils.verifyChecksum(cached, BootConfig.NODE_SHA256)) {
-                    android.util.Log.i(TAG, "Using cached Node.js from ${cached.absolutePath}")
-                    cached
-                } else {
-                    val tmp = File(context.cacheDir, "node-download.tar.xz")
-                    downloadFileWithProgress(url, tmp, "node.tar.xz")
-                    tmp
-                }
-                
-                HarnessState.update(Phase.BOOTSTRAPPING, "Extracting Node.js runtime...")
-                extractTarXz(archive, rootfsDir())
-                if (!cached.exists()) {
-                    archive.copyTo(getExternalCacheFile(BootConfig.LOCAL_NODE_FILENAME), overwrite = true)
-                    archive.delete()
-                }
-                
-                android.util.Log.i(TAG, "Node.js installed successfully")
-                return
-            } catch (e: Exception) {
-                lastError = e
-                android.util.Log.w(TAG, "Node.js download attempt $attempt failed: ${e.message}")
-                if (attempt < MAX_RETRIES) {
-                    HarnessState.update(Phase.BOOTSTRAPPING, "Download failed. Retrying in ${RETRY_DELAY_MS / 1000}s...", canRetry = false)
-                    delay(RETRY_DELAY_MS)
+    var lastError: Exception? = null
+    for (attempt in 1..MAX_RETRIES) {
+        try {
+            android.util.Log.i(TAG, "Downloading Node.js (attempt $attempt/$MAX_RETRIES)")
+            
+            val progress = DownloadProgress(fileName = "node.tar.gz", isResuming = File(context.cacheDir, "node-download.tar.gz").exists())
+            HarnessState.update(Phase.BOOTSTRAPPING, "Downloading Node.js runtime... (Attempt $attempt/$MAX_RETRIES)", downloadProgress = progress)
+            updateNotification(progress)
+            
+            val cached = getExternalCacheFile(BootConfig.LOCAL_NODE_FILENAME)
+            val archive: File = if (cached.exists() && FileUtils.verifyChecksum(cached, BootConfig.NODE_SHA256)) {
+                android.util.Log.i(TAG, "Using cached Node.js from ${cached.absolutePath}")
+                cached
+            } else {
+                val tmp = File(context.cacheDir, "node-download.tar.gz")
+                downloadFileWithProgress(url, tmp, "node.tar.gz")
+                tmp
+            }
+            
+            HarnessState.update(Phase.BOOTSTRAPPING, "Extracting Node.js runtime...")
+            extractTarGz(archive, rootfsDir())  // Changed from extractTarXz
+            if (!cached.exists()) {
+                archive.copyTo(getExternalCacheFile(BootConfig.LOCAL_NODE_FILENAME), overwrite = true)
+                archive.delete()
+            }
+            
+            android.util.Log.i(TAG, "Node.js installed successfully")
+            return
+        } catch (e: Exception) {
+            lastError = e
+            android.util.Log.w(TAG, "Node.js download attempt $attempt failed: ${e.message}")
+            if (attempt < MAX_RETRIES) {
+                HarnessState.update(Phase.BOOTSTRAPPING, "Download failed. Retrying in ${RETRY_DELAY_MS / 1000}s...", canRetry = false)
+                delay(RETRY_DELAY_MS)
+            }
+        }
+    }
+    throw IllegalStateException("Failed to download Node.js after $MAX_RETRIES attempts: ${lastError?.message}", lastError)
+}
+private fun extractTarGz(archiveFile: File, destDir: File) {
+    destDir.mkdirs()
+    var extractedCount = 0
+    var lastProgressUpdate = System.currentTimeMillis()
+    
+    java.io.BufferedInputStream(archiveFile.inputStream()).use { bin ->
+        org.apache.commons.compress.compressors.gzip.GzipCompressorInputStream(bin).use { gz ->
+            TarArchiveInputStream(gz).use { tar ->
+                var entry: TarArchiveEntry? = tar.nextTarEntry
+                while (entry != null) {
+                    val outFile = File(destDir, entry.name)
+                    
+                    if (!outFile.canonicalPath.startsWith(destDir.canonicalPath)) {
+                        throw SecurityException("Blocked path traversal: ${entry.name}")
+                    }
+                    
+                    when {
+                        entry.isDirectory -> outFile.mkdirs()
+                        entry.isSymbolicLink -> {
+                            try {
+                                outFile.parentFile?.mkdirs()
+                                outFile.delete()
+                                java.nio.file.Files.createSymbolicLink(
+                                    outFile.toPath(),
+                                    File(entry.linkName).toPath()
+                                )
+                            } catch (e: Exception) {
+                                android.util.Log.w(TAG, "Skipping symlink ${entry.name}: ${e.message}")
+                            }
+                        }
+                        else -> {
+                            outFile.parentFile?.mkdirs()
+                            FileOutputStream(outFile).use { out -> tar.copyTo(out) }
+                            val mode = entry.mode
+                            if (mode and 0b001_000_000 != 0) outFile.setExecutable(true, false)
+                            outFile.setReadable(true, false)
+                            outFile.setWritable(true, true)
+                            extractedCount++
+                        }
+                    }
+                    
+                    val now = System.currentTimeMillis()
+                    if (now - lastProgressUpdate >= 2000L) {
+                        HarnessState.update(
+                            Phase.BOOTSTRAPPING,
+                            "Extracting files... ($extractedCount files)"
+                        )
+                        lastProgressUpdate = now
+                    }
+                    
+                    entry = tar.nextTarEntry
                 }
             }
         }
-        throw IllegalStateException("Failed to download Node.js after $MAX_RETRIES attempts: ${lastError?.message}", lastError)
     }
-
+    
+    android.util.Log.i(TAG, "Extraction complete: $extractedCount files extracted")
+}
     private suspend fun downloadFileWithProgress(urlString: String, dest: File, fileName: String) {
         var currentUrl = urlString
         var redirectsLeft = 5
