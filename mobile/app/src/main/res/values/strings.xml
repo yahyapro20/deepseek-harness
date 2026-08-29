@@ -1,9 +1,6 @@
-<resources>
-    <string name="app_name">DSH Mobile (MVP)</string>
-    <string name="notif_channel_name">DSH Harness Service</string>
-    <string name="notif_starting">Starting DeepSeek Harness…</string>
-    <string name="notif_running">DeepSeek Harness is running</string>
-    <string name="status_bootstrapping">Setting up the Linux environment (first run only, this can take a few minutes)…</string>
-    <string name="status_starting_dsh">Starting DeepSeek Harness…</string>
-    <string name="status_error">Something went wrong. Check the notification / logcat for details.</string>
-</resources>
+<string name="status_bootstrapping">Setting up the Linux environment (first run only, this can take a few minutes)…</string>
+<string name="status_starting_dsh">Starting DeepSeek Harness…</string>
+<string name="status_error">Something went wrong. Check the notification / logcat for details.</string>
+<string name="download_retry">Retry Download</string>
+<string name="download_custom_url">Custom URL</string>
+<string name="download_failed_message">Download failed for: %1$s\n\nWould you like to retry or provide a custom URL?</string>
