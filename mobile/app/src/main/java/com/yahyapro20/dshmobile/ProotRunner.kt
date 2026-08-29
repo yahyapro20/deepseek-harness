@@ -7,11 +7,7 @@ import java.io.File
 object ProotRunner {
     private const val TAG = "ProotRunner"
 
-    // IMPORTANT: On Android 10+, filesDir blocks execution of ELF binaries.
-    // We MUST use cacheDir for the proot executable.
     private fun prootBinary(context: Context) = File(context.cacheDir, "proot")
-    
-    // rootfs can stay in filesDir as it's just data, not an executable
     private fun rootfsDir(context: Context) = File(context.filesDir, "dsh-root")
     private fun nodeDir(context: Context) = File(rootfsDir(context), "opt/node")
 
