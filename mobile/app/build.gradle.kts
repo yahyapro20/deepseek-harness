@@ -9,21 +9,14 @@ android {
 
     defaultConfig {
         applicationId = "com.yahyapro20.dshmobile"
-        minSdk = 29 // Android 10, matches the dev's own test device
+        minSdk = 29
         targetSdk = 34
-
-        // Bump versionCode by 1 on every release you want to ship as an update.
-        // Keeping the SAME applicationId + SAME signing key + a HIGHER versionCode
-        // is exactly what makes a new APK install as an update over the old one.
-        versionCode = 1
-        versionName = "0.1.0-mvp"
+        versionCode = 2
+        versionName = "0.2.0"
     }
 
     signingConfigs {
         create("release") {
-            // These come from environment variables injected by the GitHub Actions
-            // workflow (.github/workflows/build-mobile.yml), which itself reads them
-            // from repo Secrets. Never commit real values here.
             val ksPath = System.getenv("CI_KEYSTORE_PATH")
             if (ksPath != null) {
                 storeFile = file(ksPath)
@@ -37,9 +30,6 @@ android {
     buildTypes {
         release {
             isMinifyEnabled = false
-            // Falls back to the debug key automatically if CI env vars are absent,
-            // so a local `gradle assembleRelease` without secrets still succeeds
-            // (useful for quickly checking the build compiles).
             signingConfig = if (System.getenv("CI_KEYSTORE_PATH") != null) {
                 signingConfigs.getByName("release")
             } else {
@@ -57,7 +47,7 @@ android {
     }
 
     buildFeatures {
-        viewBinding = false
+        viewBinding = true
     }
 }
 
@@ -69,4 +59,5 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
     implementation("org.apache.commons:commons-compress:1.26.1")
     implementation("org.tukaani:xz:1.9")
+    implementation("com.google.android.material:material:1.12.0")
 }
