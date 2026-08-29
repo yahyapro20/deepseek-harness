@@ -23,15 +23,14 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.9'
-
       - name: Decode signing keystore
         run: |
           printf "%s" "${{ secrets.SIGNING_KEY_B64 }}" | base64 --decode > "$RUNNER_TEMP/release.keystore"
           echo "CI_KEYSTORE_PATH=$RUNNER_TEMP/release.keystore" >> "$GITHUB_ENV"
+
+      - name: Grant execute permission for gradlew
+        working-directory: dsh-mobile
+        run: chmod +x gradlew
 
       - name: Build release APK
         working-directory: dsh-mobile
@@ -39,7 +38,7 @@ jobs:
           CI_KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           CI_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           CI_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-        run: gradle :app:assembleRelease --no-daemon
+        run: ./gradlew :app:assembleRelease --no-daemon
 
       - name: Read versionName/versionCode
         id: ver
