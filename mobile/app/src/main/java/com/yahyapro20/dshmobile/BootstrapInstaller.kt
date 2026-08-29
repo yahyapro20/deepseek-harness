@@ -10,7 +10,6 @@ import java.io.File
 import java.io.FileOutputStream
 import java.net.HttpURLConnection
 import java.net.URL
-import java.util.concurrent.TimeUnit
 
 private const val TAG = "BootstrapInstaller"
 private const val MAX_RETRIES = 3
@@ -39,53 +38,63 @@ fun installBootstrap(context: Context, customUrls: Map<String, String> = emptyMa
             Phase.ERROR,
             "Bootstrap installation failed: ${e.message}",
             errorDetail = e.stackTraceToString(),
-            canRetry = true
+            canRetry = true,
+            failedUrl = e.message?.substringAfter("for ") ?: "Unknown URL"
         )
         throw e
     }
 }
 
-// ---- proot ----------------------------------------------------------------
-
-private fun installProot(context: Context) {
-    // IMPORTANT: On Android 10+, filesDir blocks execution of ELF binaries.
-    // We MUST use cacheDir instead.
+private fun installProot(context: Context, url: String) {
+    // MUST be in cacheDir for Android 10+ execution permission
     val prootFile = File(context.cacheDir, "proot")
-    
     if (prootFile.exists() && prootFile.canExecute()) {
         Log.i(TAG, "proot already installed at ${prootFile.absolutePath}")
         return
     }
 
-    val cached = File(localCacheDir(context), BootConfig.LOCAL_PROOT_FILENAME)
-    val tmp: File = if (cached.exists()) {
-        Log.i(TAG, "Using cached proot from ${cached.absolutePath}")
-        cached
-    } else {
-        val t = File(context.cacheDir, "proot-download")
-        downloadFile(BootConfig.PROOT_URL, t)
-        t
-    }
+    var lastError: Exception? = null
+    for (attempt in 1..MAX_RETRIES) {
+        try {
+            Log.i(TAG, "Downloading proot (attempt $attempt/$MAX_RETRIES)")
+            HarnessState.update(
+                Phase.BOOTSTRAPPING,
+                "Downloading proot... (Attempt $attempt/$MAX_RETRIES)",
+                downloadProgress = DownloadProgress(fileName = "proot")
+            )
+            
+            val cached = File(localCacheDir(context), BootConfig.LOCAL_PROOT_FILENAME)
+            val tmp: File = if (cached.exists()) {
+                Log.i(TAG, "Using cached proot from ${cached.absolutePath}")
+                cached
+            } else {
+                val t = File(context.cacheDir, "proot-download")
+                downloadFileWithProgress(url, t, "proot")
+                t
+            }
 
-    // Copy to final location in cacheDir
-    tmp.copyTo(prootFile, overwrite = true)
-    prootFile.setExecutable(true, false)
-    prootFile.setReadable(true, false)
-    
-    // Verify it's executable
-    if (!prootFile.canExecute()) {
-        // Fallback: try chmod via Runtime (rarely needed)
-        Runtime.getRuntime().exec(arrayOf("chmod", "755", prootFile.absolutePath))
+            prootFile.parentFile?.mkdirs()
+            tmp.copyTo(prootFile, overwrite = true)
+            prootFile.setExecutable(true, false)
+            prootFile.setReadable(true, false)
+            
+            if (!cached.exists()) tmp.delete()
+            Log.i(TAG, "proot installed successfully at ${prootFile.absolutePath}")
+            return
+        } catch (e: Exception) {
+            lastError = e
+            Log.w(TAG, "proot download attempt $attempt failed: ${e.message}")
+            if (attempt < MAX_RETRIES) {
+                HarnessState.update(Phase.BOOTSTRAPPING, "Download failed. Retrying in ${RETRY_DELAY_MS / 1000}s...", canRetry = false)
+                delay(RETRY_DELAY_MS)
+            }
+        }
     }
-    
-    if (!cached.exists()) tmp.delete()
-    Log.i(TAG, "proot installed at ${prootFile.absolutePath}")
+    throw IllegalStateException("Failed to download proot after $MAX_RETRIES attempts: ${lastError?.message}", lastError)
 }
 
-// ---- rootfs -----------------------------------------------------------
-
 private fun installRootfs(context: Context, url: String) {
-    if (File(rootDir(context), "bin/sh").exists()) {
+    if (File(rootfsDir(context), "bin/sh").exists()) {
         Log.i(TAG, "rootfs already installed")
         return
     }
@@ -96,7 +105,7 @@ private fun installRootfs(context: Context, url: String) {
             Log.i(TAG, "Downloading rootfs (attempt $attempt/$MAX_RETRIES)")
             HarnessState.update(
                 Phase.BOOTSTRAPPING,
-                "Extracting Linux root filesystem... (Attempt $attempt/$MAX_RETRIES)",
+                "Downloading Linux root filesystem... (Attempt $attempt/$MAX_RETRIES)",
                 downloadProgress = DownloadProgress(fileName = "rootfs.tar.xz")
             )
             
@@ -110,15 +119,12 @@ private fun installRootfs(context: Context, url: String) {
                 tmp
             }
             
-            HarnessState.update(
-                Phase.BOOTSTRAPPING,
-                "Extracting root filesystem (this may take a few minutes)..."
-            )
-            extractTarXz(archive, rootDir(context))
+            HarnessState.update(Phase.BOOTSTRAPPING, "Extracting root filesystem (this may take a few minutes)...")
+            extractTarXz(archive, rootfsDir(context))
             if (!cached.exists()) archive.delete()
 
             listOf("tmp", "root", "usr/local/bin", "opt").forEach {
-                File(rootDir(context), it).mkdirs()
+                File(rootfsDir(context), it).mkdirs()
             }
             
             Log.i(TAG, "rootfs installed successfully")
@@ -127,23 +133,16 @@ private fun installRootfs(context: Context, url: String) {
             lastError = e
             Log.w(TAG, "rootfs download attempt $attempt failed: ${e.message}")
             if (attempt < MAX_RETRIES) {
-                HarnessState.update(
-                    Phase.BOOTSTRAPPING,
-                    "Download failed. Retrying in ${RETRY_DELAY_MS / 1000}s...",
-                    canRetry = false
-                )
+                HarnessState.update(Phase.BOOTSTRAPPING, "Download failed. Retrying in ${RETRY_DELAY_MS / 1000}s...", canRetry = false)
                 delay(RETRY_DELAY_MS)
             }
         }
     }
-    
     throw IllegalStateException("Failed to download rootfs after $MAX_RETRIES attempts: ${lastError?.message}", lastError)
 }
 
-// ---- node -------------------------------------------------------------
-
 private fun installNode(context: Context, url: String) {
-    val nodeDir = File(rootDir(context), BootConfig.NODE_DIR_NAME)
+    val nodeDir = File(rootfsDir(context), BootConfig.NODE_DIR_NAME)
     if (nodeDir.exists()) {
         Log.i(TAG, "Node.js already installed")
         return
@@ -169,11 +168,8 @@ private fun installNode(context: Context, url: String) {
                 tmp
             }
             
-            HarnessState.update(
-                Phase.BOOTSTRAPPING,
-                "Extracting Node.js runtime..."
-            )
-            extractTarXz(archive, rootDir(context))
+            HarnessState.update(Phase.BOOTSTRAPPING, "Extracting Node.js runtime...")
+            extractTarXz(archive, rootfsDir(context))
             if (!cached.exists()) archive.delete()
             
             Log.i(TAG, "Node.js installed successfully")
@@ -182,20 +178,13 @@ private fun installNode(context: Context, url: String) {
             lastError = e
             Log.w(TAG, "Node.js download attempt $attempt failed: ${e.message}")
             if (attempt < MAX_RETRIES) {
-                HarnessState.update(
-                    Phase.BOOTSTRAPPING,
-                    "Download failed. Retrying in ${RETRY_DELAY_MS / 1000}s...",
-                    canRetry = false
-                )
+                HarnessState.update(Phase.BOOTSTRAPPING, "Download failed. Retrying in ${RETRY_DELAY_MS / 1000}s...", canRetry = false)
                 delay(RETRY_DELAY_MS)
             }
         }
     }
-    
     throw IllegalStateException("Failed to download Node.js after $MAX_RETRIES attempts: ${lastError?.message}", lastError)
 }
-
-// ---- download with progress and resume support ------------------------
 
 private suspend fun downloadFileWithProgress(urlString: String, dest: File, fileName: String) {
     var currentUrl = urlString
@@ -209,7 +198,6 @@ private suspend fun downloadFileWithProgress(urlString: String, dest: File, file
             conn.connectTimeout = 30_000
             conn.readTimeout = 60_000
             
-            // Support resume if file partially exists
             val existingSize = if (dest.exists()) dest.length() else 0L
             if (existingSize > 0) {
                 conn.setRequestProperty("Range", "bytes=$existingSize-")
@@ -221,8 +209,7 @@ private suspend fun downloadFileWithProgress(urlString: String, dest: File, file
             
             when {
                 code in 300..399 -> {
-                    val location = conn.getHeaderField("Location")
-                        ?: throw IllegalStateException("Redirect with no Location header")
+                    val location = conn.getHeaderField("Location") ?: throw IllegalStateException("Redirect with no Location header")
                     conn.disconnect()
                     redirectsLeft--
                     currentUrl = location
@@ -230,19 +217,16 @@ private suspend fun downloadFileWithProgress(urlString: String, dest: File, file
                 }
                 code == HttpURLConnection.HTTP_OK || code == HttpURLConnection.HTTP_PARTIAL -> {
                     val contentLength = if (code == HttpURLConnection.HTTP_PARTIAL) {
-                        conn.getHeaderField("Content-Range")
-                            ?.substringAfter("/")
-                            ?.toLongOrNull()
-                            ?: -1L
+                        conn.getHeaderField("Content-Range")?.substringAfter("/")?.toLongOrNull() ?: -1L
                     } else {
                         conn.contentLength.toLong()
                     }
                     
                     dest.parentFile?.mkdirs()
                     val output = if (existingSize > 0 && code == HttpURLConnection.HTTP_PARTIAL) {
-                        FileOutputStream(dest, true) // Append mode
+                        FileOutputStream(dest, true)
                     } else {
-                        FileOutputStream(dest) // Fresh download
+                        FileOutputStream(dest)
                     }
                     
                     output.use { fos ->
@@ -250,7 +234,6 @@ private suspend fun downloadFileWithProgress(urlString: String, dest: File, file
                         var totalBytesRead = existingSize
                         var lastProgressTime = System.currentTimeMillis()
                         var lastBytesRead = totalBytesRead
-                        var speedCalcInterval = 0L
                         
                         conn.inputStream.use { input ->
                             var bytesRead: Int
@@ -258,24 +241,13 @@ private suspend fun downloadFileWithProgress(urlString: String, dest: File, file
                                 fos.write(buffer, 0, bytesRead)
                                 totalBytesRead += bytesRead
                                 
-                                // Update progress periodically
                                 val now = System.currentTimeMillis()
                                 if (now - lastProgressTime >= PROGRESS_UPDATE_INTERVAL_MS) {
                                     val bytesDelta = totalBytesRead - lastBytesRead
                                     val timeDelta = now - lastProgressTime
                                     val speed = (bytesDelta * 1000 / timeDelta).coerceAtLeast(0)
-                                    
-                                    val percentage = if (contentLength > 0) {
-                                        ((totalBytesRead * 100) / contentLength).toInt().coerceIn(0, 100)
-                                    } else {
-                                        0
-                                    }
-                                    
-                                    val eta = if (speed > 0 && contentLength > 0) {
-                                        (contentLength - totalBytesRead) / speed
-                                    } else {
-                                        0
-                                    }
+                                    val percentage = if (contentLength > 0) ((totalBytesRead * 100) / contentLength).toInt().coerceIn(0, 100) else 0
+                                    val eta = if (speed > 0 && contentLength > 0) (contentLength - totalBytesRead) / speed else 0
                                     
                                     HarnessState.update(
                                         Phase.BOOTSTRAPPING,
@@ -289,14 +261,12 @@ private suspend fun downloadFileWithProgress(urlString: String, dest: File, file
                                             percentage = percentage
                                         )
                                     )
-                                    
                                     lastProgressTime = now
                                     lastBytesRead = totalBytesRead
                                 }
                             }
                         }
                     }
-                    
                     conn.disconnect()
                     Log.i(TAG, "Download complete: ${dest.absolutePath} ($totalBytesRead bytes)")
                     return
@@ -312,11 +282,8 @@ private suspend fun downloadFileWithProgress(urlString: String, dest: File, file
             break
         }
     }
-    
     throw lastError ?: IllegalStateException("Download failed after redirects")
 }
-
-// ---- extract tar.xz ---------------------------------------------------
 
 private fun extractTarXz(archiveFile: File, destDir: File) {
     destDir.mkdirs()
@@ -329,21 +296,16 @@ private fun extractTarXz(archiveFile: File, destDir: File) {
                 var entry: TarArchiveEntry? = tar.nextTarEntry
                 while (entry != null) {
                     val outFile = File(destDir, entry.name)
-                    
                     if (!outFile.canonicalPath.startsWith(destDir.canonicalPath)) {
                         throw SecurityException("Blocked path traversal: ${entry.name}")
                     }
-                    
                     when {
                         entry.isDirectory -> outFile.mkdirs()
                         entry.isSymbolicLink -> {
                             try {
                                 outFile.parentFile?.mkdirs()
                                 outFile.delete()
-                                java.nio.file.Files.createSymbolicLink(
-                                    outFile.toPath(),
-                                    File(entry.linkName).toPath()
-                                )
+                                java.nio.file.Files.createSymbolicLink(outFile.toPath(), File(entry.linkName).toPath())
                             } catch (e: Exception) {
                                 Log.w(TAG, "Skipping symlink ${entry.name}: ${e.message}")
                             }
@@ -358,29 +320,20 @@ private fun extractTarXz(archiveFile: File, destDir: File) {
                             extractedCount++
                         }
                     }
-                    
-                    // Periodic progress update during extraction
                     val now = System.currentTimeMillis()
                     if (now - lastProgressUpdate >= 2000L) {
-                        HarnessState.update(
-                            Phase.BOOTSTRAPPING,
-                            "Extracting files... ($extractedCount files)"
-                        )
+                        HarnessState.update(Phase.BOOTSTRAPPING, "Extracting files... ($extractedCount files)")
                         lastProgressUpdate = now
                     }
-                    
                     entry = tar.nextTarEntry
                 }
             }
         }
     }
-    
     Log.i(TAG, "Extraction complete: $extractedCount files extracted to ${destDir.absolutePath}")
 }
 
-// ---- helpers ----------------------------------------------------------
-
-private fun rootDir(context: Context) = File(context.filesDir, "root")
+private fun rootfsDir(context: Context) = File(context.filesDir, "dsh-root")
 private fun localCacheDir(context: Context): File {
     val dir = File(context.getExternalFilesDir(null), BootConfig.LOCAL_CACHE_SUBDIR)
     dir.mkdirs()
