@@ -11,8 +11,8 @@ android {
         applicationId = "com.yahyapro20.dshmobile"
         minSdk = 29
         targetSdk = 34
-        versionCode = 2
-        versionName = "0.2.0"
+        versionCode = 3
+        versionName = "0.3.0"
     }
 
     signingConfigs {
@@ -22,7 +22,7 @@ android {
                 storeFile = file(ksPath)
                 storePassword = System.getenv("CI_KEYSTORE_PASSWORD")
                 keyAlias = System.getenv("CI_KEY_ALIAS")
-                keyPassword = System.getenv("CI_KEY_PASSWORD")
+                keyPassword = System.getenv("KEY_PASSWORD")
             }
         }
     }
@@ -56,8 +56,11 @@ dependencies {
     implementation("androidx.appcompat:appcompat:1.7.0")
     implementation("androidx.webkit:webkit:1.11.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.4")
+    implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.8.4")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
     implementation("org.apache.commons:commons-compress:1.26.1")
     implementation("org.tukaani:xz:1.9")
     implementation("com.google.android.material:material:1.12.0")
+    implementation("androidx.constraintlayout:constraintlayout:2.1.4")
+    implementation("androidx.cardview:cardview:1.0.0")
 }
