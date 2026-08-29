@@ -2,9 +2,9 @@ name: Build DSH Mobile APK
 
 on:
   push:
-    branches: [ main ]
+    branches: [ master ]
     paths:
-      - 'mobile/**'
+      - 'dsh-mobile/**'
       - '.github/workflows/build-mobile.yml'
   workflow_dispatch: {}
 
@@ -34,7 +34,7 @@ jobs:
           echo "CI_KEYSTORE_PATH=$RUNNER_TEMP/release.keystore" >> "$GITHUB_ENV"
 
       - name: Build release APK
-        working-directory: mobile
+        working-directory: dsh-mobile
         env:
           CI_KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           CI_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
@@ -43,7 +43,7 @@ jobs:
 
       - name: Read versionName/versionCode
         id: ver
-        working-directory: mobile
+        working-directory: dsh-mobile
         run: |
           NAME=$(grep -m1 'versionName' app/build.gradle.kts | sed 's/.*"\(.*\)".*/\1/')
           CODE=$(grep -m1 'versionCode' app/build.gradle.kts | grep -o '[0-9]\+')
@@ -54,11 +54,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: dsh-mobile-${{ steps.ver.outputs.name }}
-          path: mobile/app/build/outputs/apk/release/app-release.apk
-
-      - name: Publish GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: v${{ steps.ver.outputs.code }}-${{ steps.ver.outputs.name }}
-          name: DSH Mobile ${{ steps.ver.outputs.name }} (build ${{ steps.ver.outputs.code }})
-          files: mobile/app/build/outputs/apk/release/app-release.apk
+          path: dsh-mobile/app/build/outputs/apk/release/app-release.apk
