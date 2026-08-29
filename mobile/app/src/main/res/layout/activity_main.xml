@@ -3,7 +3,7 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/background"
+    android:background="#F5F5F5"
     android:fillViewport="true">
 
     <LinearLayout
@@ -12,241 +12,142 @@
         android:orientation="vertical"
         android:padding="16dp">
 
-        <!-- Header Card -->
-        <com.google.android.material.card.MaterialCardView
+        <!-- Setup UI Wrapper -->
+        <LinearLayout
+            android:id="@+id/setupLayout"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="16dp"
-            app:cardCornerRadius="12dp"
-            app:cardElevation="4dp">
+            android:orientation="vertical">
 
-            <LinearLayout
+            <com.google.android.material.card.MaterialCardView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:padding="20dp">
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="@string/setup_title"
-                    android:textSize="24sp"
-                    android:textStyle="bold"
-                    android:textColor="@color/primary"/>
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:text="@string/setup_description"
-                    android:textSize="14sp"
-                    android:textColor="@color/black"
-                    android:lineSpacingExtra="4dp"/>
-            </LinearLayout>
-        </com.google.android.material.card.MaterialCardView>
-
-        <!-- Proot Card -->
-        <com.google.android.material.card.MaterialCardView
-            android:id="@+id/cardProot"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="12dp"
-            app:cardCornerRadius="12dp"
-            app:cardElevation="2dp">
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:padding="16dp">
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="@string/file_proot_title"
-                    android:textSize="18sp"
-                    android:textStyle="bold"/>
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp"
-                    android:text="@string/file_proot_desc"
-                    android:textSize="12sp"
-                    android:textColor="#666666"/>
-
-                <TextView
-                    android:id="@+id/tvProotStatus"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="12dp"
-                    android:text="@string/status_not_selected"
-                    android:textSize="14sp"
-                    android:textColor="@color/error"/>
+                android:layout_marginBottom="16dp"
+                app:cardCornerRadius="12dp"
+                app:cardElevation="4dp">
 
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="12dp"
-                    android:orientation="horizontal">
+                    android:orientation="vertical"
+                    android:padding="20dp">
 
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/btnSelectProot"
-                        android:layout_width="0dp"
+                    <TextView
+                        android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:layout_marginEnd="4dp"
-                        android:text="@string/btn_select_file"
-                        android:textSize="12sp"
-                        style="@style/Widget.MaterialComponents.Button.OutlinedButton"/>
+                        android:text="تنظیمات اولیه"
+                        android:textSize="22sp"
+                        android:textStyle="bold"
+                        android:textColor="#6200EE"/>
 
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/btnDownloadProot"
-                        android:layout_width="0dp"
+                    <TextView
+                        android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:layout_marginStart="4dp"
-                        android:text="@string/btn_download"
-                        android:textSize="12sp"/>
+                        android:layout_marginTop="8dp"
+                        android:text="برای اجرای DeepSeek Harness به ۳ فایل نیاز است. می‌توانید آن‌ها را از حافظه گوشی انتخاب کنید یا اجازه دهید برنامه دانلود کند."
+                        android:textSize="14sp"
+                        android:textColor="#333333"
+                        android:lineSpacingExtra="4dp"/>
                 </LinearLayout>
-            </LinearLayout>
-        </com.google.android.material.card.MaterialCardView>
+            </com.google.android.material.card.MaterialCardView>
 
-        <!-- RootFS Card -->
-        <com.google.android.material.card.MaterialCardView
-            android:id="@+id/cardRootfs"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="12dp"
-            app:cardCornerRadius="12dp"
-            app:cardElevation="2dp">
-
-            <LinearLayout
+            <!-- Proot Card -->
+            <com.google.android.material.card.MaterialCardView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:padding="16dp">
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="@string/file_rootfs_title"
-                    android:textSize="18sp"
-                    android:textStyle="bold"/>
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp"
-                    android:text="@string/file_rootfs_desc"
-                    android:textSize="12sp"
-                    android:textColor="#666666"/>
-
-                <TextView
-                    android:id="@+id/tvRootfsStatus"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="12dp"
-                    android:text="@string/status_not_selected"
-                    android:textSize="14sp"
-                    android:textColor="@color/error"/>
+                android:layout_marginBottom="12dp"
+                app:cardCornerRadius="12dp"
+                app:cardElevation="2dp">
 
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="12dp"
-                    android:orientation="horizontal">
+                    android:orientation="vertical"
+                    android:padding="16dp">
 
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/btnSelectRootfs"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:layout_marginEnd="4dp"
-                        android:text="@string/btn_select_file"
-                        android:textSize="12sp"
-                        style="@style/Widget.MaterialComponents.Button.OutlinedButton"/>
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="۱. Proot (Executable)" android:textSize="16sp" android:textStyle="bold"/>
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="4dp" android:text="ابزار اجرای لینوکس | حجم: ~۱.۵ مگابایت" android:textSize="12sp" android:textColor="#666666"/>
+                    <TextView android:id="@+id/tvProotStatus" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:text="❌ هنوز انتخاب/دانلود نشده" android:textSize="14sp" android:textColor="#F44336"/>
 
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/btnDownloadRootfs"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:layout_marginStart="4dp"
-                        android:text="@string/btn_download"
-                        android:textSize="12sp"/>
+                    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:orientation="horizontal">
+                        <com.google.android.material.button.MaterialButton android:id="@+id/btnSelectProot" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:layout_marginEnd="4dp" android:text="📁 انتخاب از حافظه" android:textSize="12sp" style="@style/Widget.MaterialComponents.Button.OutlinedButton"/>
+                        <com.google.android.material.button.MaterialButton android:id="@+id/btnDownloadProot" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:layout_marginStart="4dp" android:text="⬇️ دانلود خودکار" android:textSize="12sp"/>
+                    </LinearLayout>
                 </LinearLayout>
-            </LinearLayout>
-        </com.google.android.material.card.MaterialCardView>
+            </com.google.android.material.card.MaterialCardView>
 
-        <!-- Node.js Card -->
-        <com.google.android.material.card.MaterialCardView
-            android:id="@+id/cardNode"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="16dp"
-            app:cardCornerRadius="12dp"
-            app:cardElevation="2dp">
-
-            <LinearLayout
+            <!-- RootFS Card -->
+            <com.google.android.material.card.MaterialCardView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:padding="16dp">
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="@string/file_node_title"
-                    android:textSize="18sp"
-                    android:textStyle="bold"/>
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp"
-                    android:text="@string/file_node_desc"
-                    android:textSize="12sp"
-                    android:textColor="#666666"/>
-
-                <TextView
-                    android:id="@+id/tvNodeStatus"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="12dp"
-                    android:text="@string/status_not_selected"
-                    android:textSize="14sp"
-                    android:textColor="@color/error"/>
+                android:layout_marginBottom="12dp"
+                app:cardCornerRadius="12dp"
+                app:cardElevation="2dp">
 
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="12dp"
-                    android:orientation="horizontal">
+                    android:orientation="vertical"
+                    android:padding="16dp">
 
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/btnSelectNode"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:layout_marginEnd="4dp"
-                        android:text="@string/btn_select_file"
-                        android:textSize="12sp"
-                        style="@style/Widget.MaterialComponents.Button.OutlinedButton"/>
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="۲. Debian RootFS" android:textSize="16sp" android:textStyle="bold"/>
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="4dp" android:text="سیستم عامل لینوکس | حجم: ~۲۵۰ مگابایت" android:textSize="12sp" android:textColor="#666666"/>
+                    <TextView android:id="@+id/tvRootfsStatus" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:text="❌ هنوز انتخاب/دانلود نشده" android:textSize="14sp" android:textColor="#F44336"/>
 
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/btnDownloadNode"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:layout_marginStart="4dp"
-                        android:text="@string/btn_download"
-                        android:textSize="12sp"/>
+                    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:orientation="horizontal">
+                        <com.google.android.material.button.MaterialButton android:id="@+id/btnSelectRootfs" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:layout_marginEnd="4dp" android:text="📁 انتخاب از حافظه" android:textSize="12sp" style="@style/Widget.MaterialComponents.Button.OutlinedButton"/>
+                        <com.google.android.material.button.MaterialButton android:id="@+id/btnDownloadRootfs" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:layout_marginStart="4dp" android:text="⬇️ دانلود خودکار" android:textSize="12sp"/>
+                    </LinearLayout>
                 </LinearLayout>
-            </LinearLayout>
-        </com.google.android.material.card.MaterialCardView>
+            </com.google.android.material.card.MaterialCardView>
 
-        <!-- Progress Section (Hidden by default) -->
+            <!-- Node.js Card -->
+            <com.google.android.material.card.MaterialCardView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="16dp"
+                app:cardCornerRadius="12dp"
+                app:cardElevation="2dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="۳. Node.js Runtime" android:textSize="16sp" android:textStyle="bold"/>
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="4dp" android:text="محیط اجرای JavaScript | حجم: ~۵۰ مگابایت" android:textSize="12sp" android:textColor="#666666"/>
+                    <TextView android:id="@+id/tvNodeStatus" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:text="❌ هنوز انتخاب/دانلود نشده" android:textSize="14sp" android:textColor="#F44336"/>
+
+                    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:orientation="horizontal">
+                        <com.google.android.material.button.MaterialButton android:id="@+id/btnSelectNode" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:layout_marginEnd="4dp" android:text="📁 انتخاب از حافظه" android:textSize="12sp" style="@style/Widget.MaterialComponents.Button.OutlinedButton"/>
+                        <com.google.android.material.button.MaterialButton android:id="@+id/btnDownloadNode" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:layout_marginStart="4dp" android:text="⬇️ دانلود خودکار" android:textSize="12sp"/>
+                    </LinearLayout>
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnStartInstall"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="8dp"
+                android:text="🚀 شروع نصب و اجرا"
+                android:textSize="16sp"
+                android:enabled="false"
+                android:paddingVertical="16dp"/>
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnDownloadAll"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="⬇️ دانلود همه به صورت خودکار"
+                android:textSize="14sp"
+                style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                android:paddingVertical="12dp"/>
+
+        </LinearLayout>
+
+        <!-- Progress Section -->
         <com.google.android.material.card.MaterialCardView
             android:id="@+id/cardProgress"
             android:layout_width="match_parent"
@@ -286,27 +187,6 @@
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
-        <!-- Action Buttons -->
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btnStartInstall"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="8dp"
-            android:text="@string/btn_start_install"
-            android:textSize="16sp"
-            android:enabled="false"
-            android:paddingVertical="16dp"/>
-
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btnDownloadAll"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="@string/btn_download_all"
-            android:textSize="14sp"
-            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
-            android:paddingVertical="12dp"/>
-
-        <!-- WebView (Hidden by default) -->
         <WebView
             android:id="@+id/webView"
             android:layout_width="match_parent"
