@@ -1,0 +1,11 @@
+# 构建产物与本地环境
+.gradle/
+build/
+app/build/
+local.properties
+*.apk
+
+# IDE
+.idea/
+*.iml
+.cxx/
