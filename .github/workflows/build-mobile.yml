@@ -1,1 +1,68 @@
 
+name: Build DSH Mobile APK
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'mobile/**'
+      - '.github/workflows/build-mobile.yml'
+  workflow_dispatch: {}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      # No Gradle wrapper is checked in (avoids committing a binary jar via the
+      # web UI); this installs a matching Gradle directly on the runner instead.
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Decode signing keystore
+        if: ${{ secrets.SIGNING_KEY_B64 != '' }}
+        run: |
+          echo "${{ secrets.SIGNING_KEY_B64 }}" | base64 -d > "$RUNNER_TEMP/release.keystore"
+          echo "CI_KEYSTORE_PATH=$RUNNER_TEMP/release.keystore" >> "$GITHUB_ENV"
+
+      - name: Build release APK
+        working-directory: mobile
+        env:
+          CI_KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          CI_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          CI_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: gradle :app:assembleRelease --no-daemon
+
+      - name: Read versionName/versionCode
+        id: ver
+        working-directory: mobile
+        run: |
+          NAME=$(grep -m1 'versionName' app/build.gradle.kts | sed 's/.*"\(.*\)".*/\1/')
+          CODE=$(grep -m1 'versionCode' app/build.gradle.kts | grep -o '[0-9]\+')
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+          echo "code=$CODE" >> "$GITHUB_OUTPUT"
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dsh-mobile-${{ steps.ver.outputs.name }}
+          path: mobile/app/build/outputs/apk/release/app-release.apk
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.ver.outputs.code }}-${{ steps.ver.outputs.name }}
+          name: DSH Mobile ${{ steps.ver.outputs.name }} (build ${{ steps.ver.outputs.code }})
+          files: mobile/app/build/outputs/apk/release/app-release.apk
