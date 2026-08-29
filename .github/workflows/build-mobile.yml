@@ -28,12 +28,10 @@ jobs:
         with:
           gradle-version: '8.9'
 
-      # --- بخش اصلاح شده ---
       - name: Decode signing keystore
         run: |
-          echo "${{ secrets.SIGNING_KEY_B64 }}" | base64 -d > "$RUNNER_TEMP/release.keystore"
+          printf "%s" "${{ secrets.SIGNING_KEY_B64 }}" | base64 --decode > "$RUNNER_TEMP/release.keystore"
           echo "CI_KEYSTORE_PATH=$RUNNER_TEMP/release.keystore" >> "$GITHUB_ENV"
-      # ----------------------
 
       - name: Build release APK
         working-directory: mobile
