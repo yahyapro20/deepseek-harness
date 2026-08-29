@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 夜间主题：深色 Material 让系统对话框/输入框也变深，状态栏图标切浅色 -->
+    <style name="AppTheme" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/ds_bg_soft</item>
+        <item name="android:statusBarColor">@color/ds_bg_soft</item>
+        <item name="android:navigationBarColor">@color/ds_bg_soft</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:colorAccent">@color/ds_primary</item>
+    </style>
+</resources>
