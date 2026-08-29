@@ -1,1 +1,9 @@
-
+<resources>
+    <string name="app_name">DSH Mobile (MVP)</string>
+    <string name="notif_channel_name">DSH Harness Service</string>
+    <string name="notif_starting">Starting DeepSeek Harness…</string>
+    <string name="notif_running">DeepSeek Harness is running</string>
+    <string name="status_bootstrapping">Setting up the Linux environment (first run only, this can take a few minutes)…</string>
+    <string name="status_starting_dsh">Starting DeepSeek Harness…</string>
+    <string name="status_error">Something went wrong. Check the notification / logcat for details.</string>
+</resources>
