@@ -47,48 +47,39 @@ fun installBootstrap(context: Context, customUrls: Map<String, String> = emptyMa
 
 // ---- proot ----------------------------------------------------------------
 
-private fun installProot(context: Context, url: String) {
-    val prootFile = File(rootDir(context), "usr/bin/proot")
-    if (prootFile.exists()) {
-        Log.i(TAG, "proot already installed")
+private fun installProot(context: Context) {
+    // IMPORTANT: On Android 10+, filesDir blocks execution of ELF binaries.
+    // We MUST use cacheDir instead.
+    val prootFile = File(context.cacheDir, "proot")
+    
+    if (prootFile.exists() && prootFile.canExecute()) {
+        Log.i(TAG, "proot already installed at ${prootFile.absolutePath}")
         return
     }
 
-    var lastError: Exception? = null
-    for (attempt in 1..MAX_RETRIES) {
-        try {
-            Log.i(TAG, "Downloading proot (attempt $attempt/$MAX_RETRIES)")
-            HarnessState.update(
-                Phase.BOOTSTRAPPING,
-                "Downloading proot... (Attempt $attempt/$MAX_RETRIES)",
-                downloadProgress = DownloadProgress(fileName = "proot")
-            )
-            
-            val tmp = File(context.cacheDir, "proot-download")
-            downloadFileWithProgress(url, tmp, "proot")
-            
-            prootFile.parentFile?.mkdirs()
-            tmp.copyTo(prootFile, overwrite = true)
-            prootFile.setExecutable(true)
-            tmp.delete()
-            
-            Log.i(TAG, "proot installed successfully")
-            return
-        } catch (e: Exception) {
-            lastError = e
-            Log.w(TAG, "proot download attempt $attempt failed: ${e.message}")
-            if (attempt < MAX_RETRIES) {
-                HarnessState.update(
-                    Phase.BOOTSTRAPPING,
-                    "Download failed. Retrying in ${RETRY_DELAY_MS / 1000}s...",
-                    canRetry = false
-                )
-                delay(RETRY_DELAY_MS)
-            }
-        }
+    val cached = File(localCacheDir(context), BootConfig.LOCAL_PROOT_FILENAME)
+    val tmp: File = if (cached.exists()) {
+        Log.i(TAG, "Using cached proot from ${cached.absolutePath}")
+        cached
+    } else {
+        val t = File(context.cacheDir, "proot-download")
+        downloadFile(BootConfig.PROOT_URL, t)
+        t
+    }
+
+    // Copy to final location in cacheDir
+    tmp.copyTo(prootFile, overwrite = true)
+    prootFile.setExecutable(true, false)
+    prootFile.setReadable(true, false)
+    
+    // Verify it's executable
+    if (!prootFile.canExecute()) {
+        // Fallback: try chmod via Runtime (rarely needed)
+        Runtime.getRuntime().exec(arrayOf("chmod", "755", prootFile.absolutePath))
     }
     
-    throw IllegalStateException("Failed to download proot after $MAX_RETRIES attempts: ${lastError?.message}", lastError)
+    if (!cached.exists()) tmp.delete()
+    Log.i(TAG, "proot installed at ${prootFile.absolutePath}")
 }
 
 // ---- rootfs -----------------------------------------------------------
