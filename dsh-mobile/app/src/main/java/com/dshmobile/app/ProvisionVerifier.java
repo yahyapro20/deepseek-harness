@@ -2,6 +2,7 @@ package com.dshmobile.app;
 
 import java.io.File;
 import java.io.FileInputStream;
+import java.io.InputStream;
 import java.io.IOException;
 import java.security.MessageDigest;
 import java.util.Locale;
