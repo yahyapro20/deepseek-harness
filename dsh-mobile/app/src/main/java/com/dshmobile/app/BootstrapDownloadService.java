@@ -39,7 +39,7 @@ public final class BootstrapDownloadService extends Service {
         store = ProvisionStore.of(this);
         dlDir = new File(ProotRunner.baseDir(this), "dl"); dlDir.mkdirs();
         createChannel();
-        startForeground(NOTIFICATION_ID, notification("آماده‌سازی محیط", "دانلودها در پس‌زمینه ادامه پیدا می‌کنند", 0));
+        startForeground(NOTIFICATION_ID, notification("Preparing environment", "Downloads continue in the background", 0));
     }
 
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
@@ -95,7 +95,7 @@ public final class BootstrapDownloadService extends Service {
     private boolean downloadWithRetry(FileAsset.Kind kind, File part, File dest) {
         int failures = 0;
         while (!stopRequested) {
-            if (!hasNetwork()) { store.status(kind, ProvisionStore.Status.PAUSED); store.error(kind, "اینترنت قطع است؛ پس از اتصال دوباره ادامه می‌دهیم"); broadcast(kind); sleep(3000); continue; }
+            if (!hasNetwork()) { store.status(kind, ProvisionStore.Status.PAUSED); store.error(kind, "Internet disconnected; will resume after reconnection"); broadcast(kind); sleep(3000); continue; }
             try {
                 ProvisionMirrors.Mirror mirror = ProvisionMirrors.byId(store.mirror(kind));
                 String custom = store.customUrl(kind);
@@ -144,7 +144,7 @@ public final class BootstrapDownloadService extends Service {
     private void removeQueuedId(String id) { if(id==null)return; List<FileAsset.Kind> q=readQueue(); StringBuilder b=new StringBuilder(); for(FileAsset.Kind k:q) if(!k.id.equals(id)){if(b.length()>0)b.append(',');b.append(k.id);} store.setQueue(b.toString()); }
     private void removeFromQueue(FileAsset.Kind kind) { List<FileAsset.Kind> q=readQueue();StringBuilder b=new StringBuilder();for(FileAsset.Kind k:q)if(k!=kind){if(b.length()>0)b.append(',');b.append(k.id);}store.setQueue(b.toString()); }
     private void broadcast(FileAsset.Kind k) { Intent i=new Intent(FileProvisionActivity.ACTION_STATE_CHANGED);i.setPackage(getPackageName());i.putExtra(FileProvisionActivity.EXTRA_KIND,k.id);sendBroadcast(i); }
-    private void updateNotification(FileAsset.Kind k,long done,long total,long speed){int p=total>0?(int)Math.min(100,done*100/total):0;NotificationManager nm=(NotificationManager)getSystemService(NOTIFICATION_SERVICE);nm.notify(NOTIFICATION_ID,notification(k.displayName,"در حال دانلود  •  "+p+"%  •  "+format(speed)+"/s",p));}
+    private void updateNotification(FileAsset.Kind k,long done,long total,long speed){int p=total>0?(int)Math.min(100,done*100/total):0;NotificationManager nm=(NotificationManager)getSystemService(NOTIFICATION_SERVICE);nm.notify(NOTIFICATION_ID,notification(k.displayName,"Downloading  •  "+p+"%  •  "+format(speed)+"/s",p));}
     private Notification notification(String title,String text,int progress){Intent i=new Intent(this,FileProvisionActivity.class);PendingIntent pi=PendingIntent.getActivity(this,0,i,Build.VERSION.SDK_INT>=23?PendingIntent.FLAG_IMMUTABLE:0);Notification.Builder b=Build.VERSION.SDK_INT>=26?new Notification.Builder(this,CHANNEL):new Notification.Builder(this);b.setSmallIcon(com.dshmobile.app.R.drawable.ic_launcher).setContentTitle(title).setContentText(text).setContentIntent(pi).setOngoing(true);if(progress>0)b.setProgress(100,progress,false);return b.build();}
     private void createChannel(){if(Build.VERSION.SDK_INT>=26){NotificationManager nm=(NotificationManager)getSystemService(NOTIFICATION_SERVICE);nm.createNotificationChannel(new NotificationChannel(CHANNEL,"Bootstrap downloads",NotificationManager.IMPORTANCE_LOW));}}
     private String format(long b){if(b<=0)return "0 B";if(b>=1048576)return String.format(java.util.Locale.US,"%.1f MB",b/1048576.0);if(b>=1024)return String.format(java.util.Locale.US,"%.0f KB",b/1024.0);return b+" B";}
