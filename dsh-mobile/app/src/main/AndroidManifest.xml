@@ -41,8 +41,13 @@
             android:name=".SetupActivity"
             android:exported="false"
             android:configChanges="orientation|screenSize|keyboardHidden|keyboard|smallestScreenSize" />
+            
         <activity android:name=".SettingsActivity" android:exported="false" />
         <activity android:name=".ConfigEditorActivity" android:exported="false" />
+        
+        <!-- این خط جدید اضافه شده برای FileProvisionActivity -->
+        <activity android:name=".FileProvisionActivity" android:exported="false" />
+        
         <activity
             android:name=".FileManagerActivity"
             android:exported="false"
@@ -58,7 +63,7 @@
             android:foregroundServiceType="specialUse">
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="运行内置 Ubuntu 容器中的 DeepSeek Harness Web 服务" />
+                android:value="Running DeepSeek Harness Web service in built-in Ubuntu container" />
         </service>
     </application>
 </manifest>
