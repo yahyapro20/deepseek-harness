@@ -55,6 +55,7 @@ public final class FileProvisionActivity extends Activity {
     private File dlDir;
     private LinearLayout content;
     private TextView overall, overallSub, storage, network;
+    private DshReadinessView readinessRing;
     private Button mainAction, pauseResume;
     private boolean advanced;
 
@@ -118,61 +119,142 @@ public final class FileProvisionActivity extends Activity {
     }
 
     private void buildUi() {
-        LinearLayout root = new LinearLayout(this); root.setOrientation(LinearLayout.VERTICAL); root.setBackgroundColor(Ui.bgSoft(this));
-        ScrollView scroll = new ScrollView(this); scroll.setFillViewport(true);
-        content = new LinearLayout(this); content.setOrientation(LinearLayout.VERTICAL); int pad=dp(18); content.setPadding(pad,pad,pad,pad);
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setBackgroundColor(Ui.bgSoft(this));
 
-        LinearLayout hero = panel();
-        TextView eyebrow = text("DEEPSEEK HARNESS", 12, Ui.PRIMARY, true); hero.addView(eyebrow);
-        hero.addView(text("محیط اجرا را آماده کنیم", 27, Ui.text(this), true), margin(6));
-        hero.addView(text("Ubuntu 22.04، proot، کتابخانه‌های لازم و Node.js روی همین گوشی آماده می‌شوند.",14,Ui.textSecondary(this),false),margin(6));
+        ScrollView scroll = new ScrollView(this);
+        scroll.setFillViewport(true);
+        scroll.setClipToPadding(false);
+        content = new LinearLayout(this);
+        content.setOrientation(LinearLayout.VERTICAL);
+        int pad = dp(18);
+        content.setPadding(pad, dp(14), pad, dp(22));
 
-        LinearLayout summary = new LinearLayout(this); summary.setGravity(Gravity.CENTER_VERTICAL); summary.setPadding(0,dp(18),0,0);
-        LinearLayout summaryText = new LinearLayout(this); summaryText.setOrientation(LinearLayout.VERTICAL);
-        overall=text("در حال بررسی…",16,Ui.text(this),true); summaryText.addView(overall);
-        overallSub=text("",12,Ui.textSecondary(this),false); summaryText.addView(overallSub,margin(3));
-        summary.addView(summaryText,new LinearLayout.LayoutParams(0,-2,1));
-        TextView check=text("✓",26,Ui.PRIMARY,true); summary.addView(check);
-        hero.addView(summary);
+        // Hero / readiness header
+        LinearLayout hero = surface(dp(24));
+        LinearLayout top = new LinearLayout(this);
+        top.setGravity(Gravity.CENTER_VERTICAL);
+        TextView eyebrow = text("DEEPSEEK HARNESS", 11, Ui.PRIMARY, true);
+        top.addView(eyebrow, new LinearLayout.LayoutParams(0, -2, 1));
+        TextView shield = pill("ENVIRONMENT", Ui.PRIMARY, Ui.PRIMARY_SOFT);
+        top.addView(shield);
+        hero.addView(top);
+        hero.addView(text("محیط اجرا آماده می‌شود", 28, Ui.text(this), true), margin(9));
+        hero.addView(text("همه چیز برای اجرای محیط Linux و Harness روی این دستگاه بررسی و آماده می‌شود.", 14, Ui.textSecondary(this), false), margin(5));
+
+        LinearLayout readiness = new LinearLayout(this);
+        readiness.setGravity(Gravity.CENTER_VERTICAL);
+        readiness.setPadding(0, dp(18), 0, 0);
+        LinearLayout readinessText = new LinearLayout(this);
+        readinessText.setOrientation(LinearLayout.VERTICAL);
+        overall = text("در حال بررسی…", 17, Ui.text(this), true);
+        overallSub = text("وضعیت اجزا در حال همگام‌سازی است", 12, Ui.textSecondary(this), false);
+        readinessText.addView(overall);
+        readinessText.addView(overallSub, margin(3));
+        readiness.addView(readinessText, new LinearLayout.LayoutParams(0, -2, 1));
+        readinessRing = new DshReadinessView(this);
+        readiness.addView(readinessRing);
+        hero.addView(readiness);
         content.addView(hero);
 
-        LinearLayout controls=panel();
-        mainAction=primary("آماده‌سازی سریع"); mainAction.setOnClickListener(v->fastSetup()); controls.addView(mainAction);
-        pauseResume=outline("توقف همه"); pauseResume.setOnClickListener(v->togglePause()); controls.addView(pauseResume,margin(8));
-        LinearLayout tools=new LinearLayout(this); tools.setGravity(Gravity.CENTER_VERTICAL);
-        Button advancedBtn=outline("حالت پیشرفته"); advancedBtn.setOnClickListener(v->{advanced=!advanced; advancedBtn.setText(advanced?"حالت سریع":"حالت پیشرفته"); refreshAll(false);});
-        tools.addView(advancedBtn,new LinearLayout.LayoutParams(0,-2,1));
-        Button pack=outline("Bootstrap Pack"); pack.setOnClickListener(v->packDialog()); tools.addView(pack,new LinearLayout.LayoutParams(0,-2,1));
-        controls.addView(tools,margin(8));
-        content.addView(controls,margin(12));
+        // Primary action zone
+        LinearLayout action = surface(dp(20));
+        mainAction = primary("آماده‌سازی سریع");
+        mainAction.setTextSize(15);
+        action.addView(mainAction);
+        pauseResume = secondary("توقف همه");
+        action.addView(pauseResume, margin(8));
 
-        LinearLayout readiness=panel();
-        readiness.addView(text("وضعیت دستگاه",14,Ui.text(this),true));
-        network=text("اتصال: در حال بررسی…",12,Ui.textSecondary(this),false); readiness.addView(network,margin(6));
-        storage=text("فضای موردنیاز: در حال محاسبه…",12,Ui.textSecondary(this),false); readiness.addView(storage,margin(3));
-        content.addView(readiness,margin(12));
+        LinearLayout utilityRow = new LinearLayout(this);
+        utilityRow.setGravity(Gravity.CENTER_VERTICAL);
+        Button advancedBtn = tertiary("⚙  پیشرفته");
+        advancedBtn.setOnClickListener(v -> {
+            advanced = !advanced;
+            advancedBtn.setText(advanced ? "‹  حالت سریع" : "⚙  پیشرفته");
+            refreshAll(false);
+        });
+        utilityRow.addView(advancedBtn, new LinearLayout.LayoutParams(0, -2, 1));
+        Button pack = tertiary("⇄  Bootstrap Pack");
+        pack.setOnClickListener(v -> packDialog());
+        utilityRow.addView(pack, new LinearLayout.LayoutParams(0, -2, 1));
+        action.addView(utilityRow, margin(8));
+        content.addView(action, margin(12));
 
-        content.addView(text("اجزای محیط",17,Ui.text(this),true),margin(22));
-        for(FileAsset a:assets) content.addView(buildCard(a),margin(10));
-        scroll.addView(content,new ScrollView.LayoutParams(-1,-2)); root.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
+        // Device status strip
+        LinearLayout device = surface(dp(18));
+        device.addView(text("آمادگی دستگاه", 14, Ui.text(this), true));
+        LinearLayout statusRow = new LinearLayout(this);
+        statusRow.setGravity(Gravity.CENTER_VERTICAL);
+        TextView dot = circleIcon("", Ui.PRIMARY, Ui.PRIMARY_SOFT, 30);
+        statusRow.addView(dot);
+        network = text("اتصال اینترنت: در حال بررسی…", 12, Ui.textSecondary(this), false);
+        statusRow.addView(network, marginStart(8));
+        device.addView(statusRow, margin(9));
+        storage = text("فضا: در حال محاسبه…", 12, Ui.textSecondary(this), false);
+        device.addView(storage, margin(5));
+        content.addView(device, margin(12));
 
-        LinearLayout footer=new LinearLayout(this); footer.setOrientation(LinearLayout.VERTICAL); footer.setPadding(dp(16),dp(10),dp(16),dp(16)); footer.setBackgroundColor(Ui.bg(this));
-        Button start=primary("شروع نصب"); start.setOnClickListener(v->{if(allReady())verifyAllThenStart();}); footer.addView(start); root.addView(footer);
+        content.addView(text("اجزای محیط", 18, Ui.text(this), true), margin(24));
+        content.addView(text("فایل‌های لازم را ببینید؛ جزئیات تخصصی فقط وقتی لازم باشد نمایش داده می‌شوند.", 12, Ui.textSecondary(this), false), margin(4));
+        for (FileAsset a : assets) content.addView(buildCard(a), margin(10));
+
+        scroll.addView(content, new ScrollView.LayoutParams(-1, -2));
+        root.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
+
+        // Persistent bottom action
+        LinearLayout footer = new LinearLayout(this);
+        footer.setOrientation(LinearLayout.VERTICAL);
+        footer.setPadding(dp(16), dp(9), dp(16), dp(16));
+        footer.setBackgroundColor(Ui.bg(this));
+        Button start = primary("بررسی نهایی و شروع نصب  →");
+        start.setTextSize(15);
+        start.setOnClickListener(v -> { if (allReady()) verifyAllThenStart(); });
+        footer.addView(start);
+        root.addView(footer);
         setContentView(root);
     }
 
     private LinearLayout buildCard(FileAsset a) {
-        CardHolder h=new CardHolder(); h.card=panel(); holders.put(a.kind,h);
-        LinearLayout head=new LinearLayout(this); head.setGravity(Gravity.CENTER_VERTICAL);
-        TextView name=text(a.kind.displayName,16,Ui.text(this),true); head.addView(name,new LinearLayout.LayoutParams(0,-2,1));
-        TextView badge=text("",11,Ui.PRIMARY,true); head.addView(badge); h.card.addView(head);
-        h.card.addView(text(a.kind.purpose,12,Ui.textSecondary(this),false),margin(6));
-        h.status=text("",13,Ui.textSecondary(this),false); h.card.addView(h.status,margin(10));
-        h.meta=text("",12,Ui.textSecondary(this),false); h.card.addView(h.meta,margin(4));
-        h.progress=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal); h.progress.setMax(100); h.progress.setVisibility(View.GONE); h.card.addView(h.progress,margin(9));
-        h.speed=text("",12,Ui.textSecondary(this),false); h.card.addView(h.speed,margin(4));
-        h.actionRow=new LinearLayout(this); h.actionRow.setOrientation(LinearLayout.HORIZONTAL); h.card.addView(h.actionRow,margin(9));
-        render(a); return h.card;
+        CardHolder h = new CardHolder();
+        h.card = surface(dp(20));
+        holders.put(a.kind, h);
+
+        LinearLayout head = new LinearLayout(this);
+        head.setGravity(Gravity.CENTER_VERTICAL);
+        TextView icon = assetIcon(a.kind);
+        head.addView(icon);
+        LinearLayout names = new LinearLayout(this);
+        names.setOrientation(LinearLayout.VERTICAL);
+        names.addView(text(a.kind.displayName, 16, Ui.text(this), true));
+        TextView purpose = text(a.kind.purpose, 12, Ui.textSecondary(this), false);
+        names.addView(purpose, margin(3));
+        LinearLayout.LayoutParams np = new LinearLayout.LayoutParams(0, -2, 1);
+        np.leftMargin = dp(11);
+        head.addView(names, np);
+        TextView badge = pill("", Ui.textSecondary(this), Ui.bgSoft(this));
+        head.addView(badge);
+        h.card.addView(head);
+
+        h.status = text("", 13, Ui.textSecondary(this), false);
+        h.card.addView(h.status, margin(15));
+        h.meta = text("", 12, Ui.textSecondary(this), false);
+        h.card.addView(h.meta, margin(5));
+
+        h.progress = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
+        h.progress.setMax(100);
+        h.progress.setIndeterminate(false);
+        h.progress.setProgressDrawable(progressDrawable());
+        h.progress.setVisibility(View.GONE);
+        h.card.addView(h.progress, margin(10));
+
+        h.speed = text("", 11, Ui.textSecondary(this), false);
+        h.card.addView(h.speed, margin(5));
+        h.actionRow = new LinearLayout(this);
+        h.actionRow.setGravity(Gravity.CENTER_VERTICAL);
+        h.card.addView(h.actionRow, margin(11));
+        render(a);
+        return h.card;
     }
 
     private void render(FileAsset a) {
@@ -205,7 +287,9 @@ public final class FileProvisionActivity extends Activity {
     private void refreshAll(boolean initial){
         if(isFinishing())return; ProvisionStore st=ProvisionStore.of(this); int ready=0; int active=0; long download=0;
         for(FileAsset a:assets){syncState(a,st); if(st.status(a.kind)==ProvisionStore.Status.READY)ready++; if(st.status(a.kind)==ProvisionStore.Status.DOWNLOADING||st.status(a.kind)==ProvisionStore.Status.QUEUED)active++; if(st.status(a.kind)!=ProvisionStore.Status.READY){long n=st.total(a.kind);if(n<=0)n=remoteSizes.containsKey(a.kind)?remoteSizes.get(a.kind):0;download+=Math.max(0,n-st.downloaded(a.kind));} render(a);}
-        overall.setText(ready+" از "+assets.size()+" جزء آماده است"); overallSub.setText(active>0?active+" مورد در حال آماده‌سازی در پس‌زمینه":"همه وضعیت‌ها آماده نمایش هستند");
+        overall.setText(ready+" از "+assets.size()+" جزء آماده است");
+        overallSub.setText(active>0?active+" مورد در حال آماده‌سازی در پس‌زمینه":(ready==assets.size()?"محیط برای نصب آماده است":"اجزای باقی‌مانده را می‌توانید آماده کنید"));
+        if (readinessRing != null) readinessRing.setProgress(ready, assets.size());
         boolean readyAll=ready==assets.size(); mainAction.setText(readyAll?"ادامه و شروع نصب":"آماده‌سازی سریع"); mainAction.setOnClickListener(v->{if(readyAll)verifyAllThenStart();else fastSetup();});
         pauseResume.setText(active>0?"توقف همه":"ادامه همه");
         boolean net=hasNetwork(); network.setText(net?"✓ اتصال اینترنت برقرار است":"⚠ اینترنت قطع است؛ دانلودها بعد از اتصال دوباره ادامه می‌یابند"); network.setTextColor(net?Ui.textSecondary(this):Color.rgb(210,110,40));
@@ -234,7 +318,7 @@ public final class FileProvisionActivity extends Activity {
     @Override protected void onActivityResult(int requestCode,int resultCode,Intent data){super.onActivityResult(requestCode,resultCode,data);if(resultCode!=RESULT_OK||data==null||data.getData()==null)return;if(requestCode==REQ_IMPORT_PACK){new Thread(()->{BootstrapPack.Result r=BootstrapPack.importPack(getContentResolver(),data.getData(),dlDir,assets);handler.post(()->{Toast.makeText(this,r.message,Toast.LENGTH_LONG).show();refreshAll(false);});}).start();return;}if(requestCode==REQ_EXPORT_PACK){new Thread(()->{try{BootstrapPack.exportPack(getContentResolver(),data.getData(),dlDir,assets);handler.post(()->Toast.makeText(this,"Bootstrap Pack ساخته شد ✓",Toast.LENGTH_LONG).show());}catch(Exception e){handler.post(()->Toast.makeText(this,"ساخت Pack ناموفق بود: "+e.getMessage(),Toast.LENGTH_LONG).show());}}).start();return;}int ord=requestCode-REQ_PICK_BASE;if(ord<0||ord>=FileAsset.Kind.values().length)return;FileAsset a=find(FileAsset.Kind.values()[ord]);if(a==null)return;new Thread(()->{try{File tmp=new File(dlDir,a.kind.fileName+".selecting");try(java.io.InputStream in=getContentResolver().openInputStream(data.getData());java.io.OutputStream out=new java.io.FileOutputStream(tmp)){if(in==null)throw new IllegalStateException("فایل قابل خواندن نیست");byte[]b=new byte[1024*1024];int n;while((n=in.read(b))!=-1)out.write(b,0,n);}java.nio.file.Files.move(tmp.toPath(),a.destFile(dlDir).toPath(),java.nio.file.StandardCopyOption.REPLACE_EXISTING);ProvisionStore.of(this).reset(a.kind);handler.post(()->verify(a));}catch(Exception e){handler.post(()->Toast.makeText(this,"انتخاب فایل ناموفق بود: "+e.getMessage(),Toast.LENGTH_LONG).show());}}).start();}
 
     private void mirrorDialog(FileAsset.Kind kind){ProvisionStore st=ProvisionStore.of(this);List<ProvisionMirrors.Mirror> ms=ProvisionMirrors.forAsset(kind);LinearLayout box=new LinearLayout(this);box.setOrientation(LinearLayout.VERTICAL);box.setPadding(dp(8),dp(4),dp(8),dp(2));TextView info=text("وضعیت Mirrorها با تست واقعی HTTP مشخص می‌شود. Mirror سبز در حال حاضر پاسخ می‌دهد؛ بهترین گزینه بر اساس latency پیشنهاد می‌شود.",12,Ui.textSecondary(this),false);box.addView(info);LinearLayout list=new LinearLayout(this);list.setOrientation(LinearLayout.VERTICAL);box.addView(list,margin(8));AlertDialog dialog=new AlertDialog.Builder(this).setTitle("انتخاب Mirror  •  "+kind.displayName).setView(box).setNegativeButton("بستن",null).create();for(ProvisionMirrors.Mirror m:ms)addMirrorRow(list,dialog,kind,m,st);dialog.show();}
-    private void addMirrorRow(LinearLayout list,AlertDialog dialog,FileAsset.Kind kind,ProvisionMirrors.Mirror m,ProvisionStore st){LinearLayout row=new LinearLayout(this);row.setGravity(Gravity.CENTER_VERTICAL);row.setPadding(0,dp(8),0,dp(8));LinearLayout texts=new LinearLayout(this);texts.setOrientation(LinearLayout.VERTICAL);TextView name=text(m.name,14,Ui.text(this),true);TextView sub=text(m.host+"  •  در حال تست…",11,Ui.textSecondary(this),false);texts.addView(name);texts.addView(sub,margin(2));row.addView(texts,new LinearLayout.LayoutParams(0,-2,1));Button use=outline("انتخاب");use.setEnabled(false);use.setOnClickListener(v->{st.setMirror(kind,m.id);dialog.dismiss();refreshRemoteSizes();refreshAll(false);});row.addView(use);list.addView(row);new Thread(()->{ProvisionMirrors.Health h=ProvisionMirrors.check(m,kind);handler.post(()->{sub.setText(h.ok?"✓ در دسترس  •  "+h.latencyMs+" ms":"✕ در دسترس نیست  •  "+(h.error==null?"خطای شبکه":h.error));sub.setTextColor(h.ok?Ui.PRIMARY:Color.rgb(210,55,55));use.setEnabled(h.ok);if(h.ok&&m.id.equals(st.mirror(kind)))use.setText("✓ انتخاب شده");});}).start();}
+    private void addMirrorRow(LinearLayout list,AlertDialog dialog,FileAsset.Kind kind,ProvisionMirrors.Mirror m,ProvisionStore st){LinearLayout row=new LinearLayout(this);row.setGravity(Gravity.CENTER_VERTICAL);row.setPadding(0,dp(8),0,dp(8));LinearLayout texts=new LinearLayout(this);texts.setOrientation(LinearLayout.VERTICAL);TextView name=text(m.name,14,Ui.text(this),true);TextView sub=text(m.host+"  •  در حال تست…",11,Ui.textSecondary(this),false);texts.addView(name);texts.addView(sub,margin(2));row.addView(texts,new LinearLayout.LayoutParams(0,-2,1));Button use=outline("انتخاب");use.setEnabled(false);use.setOnClickListener(v->{st.setMirror(kind,m.id);dialog.dismiss();refreshRemoteSizes();refreshAll(false);});row.addView(use);list.addView(row);new Thread(()->{ProvisionMirrors.Health h=ProvisionMirrors.check(this,m,kind);handler.post(()->{sub.setText(h.ok?"✓ در دسترس  •  "+h.latencyMs+" ms":"✕ در دسترس نیست  •  "+(h.error==null?"خطای شبکه":h.error));sub.setTextColor(h.ok?Ui.PRIMARY:Color.rgb(210,55,55));use.setEnabled(h.ok);if(h.ok&&m.id.equals(st.mirror(kind)))use.setText("✓ انتخاب شده");});}).start();}
 
     private void customUrlDialog(FileAsset.Kind k){
         ProvisionStore st=ProvisionStore.of(this); EditText e=new EditText(this); e.setSingleLine(true); e.setHint("https://..."); e.setText(st.customUrl(k));
@@ -257,12 +341,119 @@ public final class FileProvisionActivity extends Activity {
     private long estimateInstallExtra(){long total=0;for(FileAsset a:assets){if(a.kind==FileAsset.Kind.ROOTFS)total+=120L*1024*1024;else if(a.kind==FileAsset.Kind.NODE)total+=120L*1024*1024;else total+=8L*1024*1024;}return total;}
     private String formatBytes(long n){if(n<0)return "—";if(n>=1073741824L)return String.format(java.util.Locale.US,"%.2f GB",n/1073741824.0);if(n>=1048576L)return String.format(java.util.Locale.US,"%.1f MB",n/1048576.0);if(n>=1024L)return String.format(java.util.Locale.US,"%.0f KB",n/1024.0);return n+" B";}
     private String formatEta(long sec){if(sec<60)return sec+" ثانیه";long m=sec/60;if(m<60)return m+" دقیقه";return (m/60)+" ساعت و "+(m%60)+" دقیقه";}
-    private void add(CardHolder h,String s,View.OnClickListener l){Button b=outline(s);b.setOnClickListener(l);LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,-2,1);p.rightMargin=dp(6);h.actionRow.addView(b,p);}
+    private void add(CardHolder h, String s, View.OnClickListener l) {
+        Button b = tertiary(s);
+        b.setOnClickListener(l);
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, -2, 1);
+        p.rightMargin = dp(6);
+        h.actionRow.addView(b, p);
+    }
 
-    private LinearLayout panel(){LinearLayout v=new LinearLayout(this);v.setOrientation(LinearLayout.VERTICAL);GradientDrawable g=new GradientDrawable();g.setColor(Ui.bg(this));g.setCornerRadius(dp(18));g.setStroke(dp(1),Ui.border(this));v.setBackground(g);int p=dp(16);v.setPadding(p,p,p,p);return v;}
-    private TextView text(String s,float size,int color,boolean bold){TextView v=new TextView(this);v.setText(s);v.setTextSize(size);v.setTextColor(color);if(bold)v.setTypeface(Typeface.DEFAULT,Typeface.BOLD);return v;}
-    private Button primary(String s){Button b=Ui.primaryButton(this,s);return b;}
-    private Button outline(String s){Button b=Ui.outlineButton(this,s);b.setTextSize(13);return b;}
-    private LinearLayout.LayoutParams margin(int top){LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);p.topMargin=dp(top);return p;}
-    private int dp(int n){return Ui.dp(this,n);}
+    private LinearLayout surface(int radius) {
+        LinearLayout v = new LinearLayout(this);
+        v.setOrientation(LinearLayout.VERTICAL);
+        GradientDrawable g = new GradientDrawable();
+        g.setColor(Ui.bg(this));
+        g.setCornerRadius(radius);
+        g.setStroke(Math.max(1, dp(1)), Ui.border(this));
+        v.setBackground(g);
+        int p = dp(17);
+        v.setPadding(p, p, p, p);
+        v.setElevation(dp(2));
+        return v;
+    }
+
+    private TextView text(String s, float size, int color, boolean bold) {
+        TextView v = new TextView(this);
+        v.setText(s);
+        v.setTextSize(size);
+        v.setTextColor(color);
+        v.setIncludeFontPadding(false);
+        if (bold) v.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        return v;
+    }
+
+    private TextView pill(String s, int fg, int bg) {
+        TextView v = text(s, 10, fg, true);
+        v.setGravity(Gravity.CENTER);
+        v.setPadding(dp(10), dp(6), dp(10), dp(6));
+        GradientDrawable g = new GradientDrawable();
+        g.setColor(bg);
+        g.setCornerRadius(dp(30));
+        v.setBackground(g);
+        return v;
+    }
+
+    private TextView circleIcon(String s, int fg, int bg, int sizeDp) {
+        TextView v = text(s, 16, fg, true);
+        v.setGravity(Gravity.CENTER);
+        GradientDrawable g = new GradientDrawable();
+        g.setColor(bg);
+        g.setShape(GradientDrawable.OVAL);
+        v.setBackground(g);
+        v.setLayoutParams(new LinearLayout.LayoutParams(dp(sizeDp), dp(sizeDp)));
+        return v;
+    }
+
+    private TextView assetIcon(FileAsset.Kind k) {
+        String glyph;
+        switch (k) {
+            case ROOTFS: glyph = "L"; break;
+            case PROOT: glyph = ">_"; break;
+            case LIBTALLOC: glyph = "◇"; break;
+            case LIBSHMEM: glyph = "↔"; break;
+            case NODE: glyph = "JS"; break;
+            default: glyph = "•";
+        }
+        return circleIcon(glyph, Ui.PRIMARY, Ui.PRIMARY_SOFT, 44);
+    }
+
+    private GradientDrawable progressDrawable() {
+        GradientDrawable g = new GradientDrawable();
+        g.setColor(Ui.PRIMARY);
+        g.setCornerRadius(dp(20));
+        return g;
+    }
+
+    private Button primary(String s) {
+        Button b = Ui.primaryButton(this, s);
+        b.setAllCaps(false);
+        b.setTextSize(15);
+        b.setMinHeight(dp(52));
+        b.setPadding(dp(14), 0, dp(14), 0);
+        b.setStateListAnimator(null);
+        return b;
+    }
+
+    private Button secondary(String s) {
+        Button b = Ui.outlineButton(this, s);
+        b.setAllCaps(false);
+        b.setTextSize(13);
+        b.setMinHeight(dp(48));
+        return b;
+    }
+
+    private Button tertiary(String s) {
+        Button b = Ui.outlineButton(this, s);
+        b.setAllCaps(false);
+        b.setTextSize(12);
+        b.setMinHeight(dp(44));
+        b.setPadding(dp(8), 0, dp(8), 0);
+        return b;
+    }
+
+    private LinearLayout.LayoutParams margin(int top) {
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, -2);
+        p.topMargin = dp(top);
+        return p;
+    }
+
+    private LinearLayout.LayoutParams marginStart(int start) {
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, -2, 1f);
+        p.leftMargin = dp(start);
+        return p;
+    }
+
+    private int dp(int n) { return Ui.dp(this, n); }
+
 }

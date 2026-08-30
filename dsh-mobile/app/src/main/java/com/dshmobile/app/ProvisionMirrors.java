@@ -121,13 +121,14 @@ public final class ProvisionMirrors {
         return BootstrapInstaller.resolveTermuxDeb(pool, prefix);
     }
 
-    public static Health check(Mirror mirror, FileAsset.Kind asset) {
+    /** Tests the actual asset endpoint when possible, not merely the mirror host. */
+    public static Health check(android.content.Context context, Mirror mirror, FileAsset.Kind asset) {
         long start = System.currentTimeMillis();
         HttpURLConnection c = null;
         try {
-            URL u = new URL(mirror.displayUrl(asset));
-            c = (HttpURLConnection) u.openConnection();
-            c.setConnectTimeout(5000); c.setReadTimeout(7000); c.setInstanceFollowRedirects(true);
+            String url = resolveUrl(asset, mirror, Prefs.of(context));
+            c = (HttpURLConnection) new URL(url).openConnection();
+            c.setConnectTimeout(5000); c.setReadTimeout(8000); c.setInstanceFollowRedirects(true);
             c.setRequestProperty("User-Agent", "dsh-mobile/1.0");
             c.setRequestProperty("Range", "bytes=0-0");
             int code = c.getResponseCode();
@@ -136,6 +137,19 @@ public final class ProvisionMirrors {
         } catch (Exception e) {
             return new Health(mirror, false, System.currentTimeMillis() - start, e.getMessage());
         } finally { if (c != null) c.disconnect(); }
+    }
+
+    /** Backward-compatible host check for callers that do not have a Context. */
+    public static Health check(Mirror mirror, FileAsset.Kind asset) {
+        long start = System.currentTimeMillis(); HttpURLConnection c = null;
+        try {
+            c = (HttpURLConnection) new URL(mirror.displayUrl(asset)).openConnection();
+            c.setConnectTimeout(5000); c.setReadTimeout(7000); c.setInstanceFollowRedirects(true);
+            c.setRequestProperty("User-Agent", "dsh-mobile/1.0"); c.setRequestProperty("Range", "bytes=0-0");
+            int code = c.getResponseCode(); boolean ok = code >= 200 && code < 400;
+            return new Health(mirror, ok, System.currentTimeMillis()-start, ok ? null : "HTTP "+code);
+        } catch(Exception e) { return new Health(mirror,false,System.currentTimeMillis()-start,e.getMessage()); }
+        finally { if(c!=null)c.disconnect(); }
     }
 
     private static String fetchText(String url) throws IOException {
