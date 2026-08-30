@@ -2,8 +2,8 @@ package com.dshmobile.app;
 
 import android.app.Activity;
 import android.app.AlertDialog;
-import android.content.res.ColorStateList;
 import android.content.Intent;
+import android.content.res.ColorStateList;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
@@ -16,9 +16,9 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import java.io.IOException;
 import java.io.File;
 import java.io.FileOutputStream;
+import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.file.Files;
@@ -27,16 +27,9 @@ import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
 
-/**
- * صفحهٔ جدید قبل از SetupActivity: توضیح می‌دهد چرا این فایل‌ها لازم‌اند،
- * بعد برای هر فایل یک کارت جدا نشان می‌دهد که کاربر می‌تواند «از دستگاه
- * انتخاب کند» یا «دانلود کند» (با Resume واقعی). وقتی همهٔ فایل‌ها آماده
- * شدند، دکمهٔ پایینی SetupActivity را باز می‌کند که از این به بعد فقط
- * استخراج/نصب کانتینر را انجام می‌دهد (چون دانلودها از قبل در dl/ هستند).
- */
 public class FileProvisionActivity extends Activity {
 
-    private static final int REQ_PICK_BASE = 100; // + ordinal آسِت
+    private static final int REQ_PICK_BASE = 100;
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final List<FileAsset> assets = new ArrayList<>();
@@ -47,7 +40,6 @@ public class FileProvisionActivity extends Activity {
     private File cacheDir;
     private LinearLayout continueBtnHolder;
 
-    /** رفرنس‌های زندهٔ ویجت‌های هر کارت، برای آپدیت بدون بازساخت کل UI. */
     private static final class CardHolder {
         LinearLayout card;
         TextView statusText;
@@ -59,19 +51,15 @@ public class FileProvisionActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         dlDir = new File(ProotRunner.baseDir(this), "dl");
-        //noinspection ResultOfMethodCallIgnored
         dlDir.mkdirs();
         cacheDir = new File(ProotRunner.sharedDir(), "bootstrap-cache");
 
         for (FileAsset.Kind k : FileAsset.Kind.values()) {
-            // اگر مرحلهٔ نهایی همان asset از قبل روی دستگاه استخراج/نصب شده،
-            // اصلاً کارتش را نشان نده (سازگار با منطق فعلی BootstrapInstaller
-            // که هر مرحله را جدا skip می‌کند).
             if (alreadyExtracted(k)) continue;
             FileAsset a = new FileAsset(k);
             File dest = a.destFile(dlDir);
             if (dest.isFile()) {
-                a.state = FileAsset.State.READY_DOWNLOADED; // از اجرای قبلی باقی مانده
+                a.state = FileAsset.State.READY_DOWNLOADED;
             } else if (a.cacheFile(cacheDir).isFile()) {
                 a.state = FileAsset.State.FOUND_IN_CACHE;
             }
@@ -79,7 +67,6 @@ public class FileProvisionActivity extends Activity {
         }
 
         if (assets.isEmpty()) {
-            // همه‌چیز از قبل آماده است؛ مستقیم برو مرحلهٔ نصب کانتینر
             startActivity(new Intent(this, SetupActivity.class));
             finish();
             return;
@@ -88,26 +75,17 @@ public class FileProvisionActivity extends Activity {
         buildUi();
     }
 
-    /** آیا این asset از قبل به‌صورت نهایی نصب/استخراج شده (منطق مشابه BootstrapInstaller.run()). */
     private boolean alreadyExtracted(FileAsset.Kind k) {
         File rootfs = ProotRunner.rootfsDir(this);
         switch (k) {
-            case ROOTFS:
-                return new File(rootfs, "bin/bash").isFile();
-            case PROOT:
-                return ProotRunner.prootBin(this).isFile();
-            case LIBTALLOC:
-                return new File(ProotRunner.libDir(this), "libtalloc.so.2").isFile();
-            case LIBSHMEM:
-                return new File(ProotRunner.libDir(this), "libandroid-shmem.so").isFile();
-            case NODE:
-                return new File(rootfs, "opt/node/bin/node").isFile();
-            default:
-                return false;
+            case ROOTFS: return new File(rootfs, "bin/bash").isFile();
+            case PROOT: return ProotRunner.prootBin(this).isFile();
+            case LIBTALLOC: return new File(ProotRunner.libDir(this), "libtalloc.so.2").isFile();
+            case LIBSHMEM: return new File(ProotRunner.libDir(this), "libandroid-shmem.so").isFile();
+            case NODE: return new File(rootfs, "opt/node/bin/node").isFile();
+            default: return false;
         }
     }
-
-    // ---------------------------------------------------------------- UI
 
     private void buildUi() {
         LinearLayout root = new LinearLayout(this);
@@ -120,7 +98,6 @@ public class FileProvisionActivity extends Activity {
         int pad = Ui.dp(this, 20);
         list.setPadding(pad, pad, pad, pad);
 
-        // --- کارت توضیح (Onboarding) ---
         LinearLayout intro = Ui.card(this);
         intro.addView(Ui.title(this, "آماده‌سازی فایل‌های موتور آفلاین"));
         TextView introBody = Ui.hint(this,
@@ -133,7 +110,6 @@ public class FileProvisionActivity extends Activity {
         intro.addView(introBody, ibp);
         list.addView(intro, Ui.matchWrap());
 
-        // --- یک کارت به‌ازای هر فایل ---
         for (FileAsset a : assets) {
             LinearLayout.LayoutParams clp = Ui.matchWrap();
             clp.topMargin = Ui.dp(this, 12);
@@ -146,7 +122,6 @@ public class FileProvisionActivity extends Activity {
         slp.height = 0;
         root.addView(scroll, slp);
 
-        // --- نوار پایین: دکمهٔ ادامه ---
         continueBtnHolder = new LinearLayout(this);
         continueBtnHolder.setOrientation(LinearLayout.VERTICAL);
         int cp = Ui.dp(this, 16);
@@ -197,7 +172,6 @@ public class FileProvisionActivity extends Activity {
         return card;
     }
 
-    /** بازسازی متن وضعیت + پراگرس‌بار + دکمه‌های هر کارت بر اساس state فعلی. */
     private void renderCardState(FileAsset a) {
         CardHolder h = holders.get(a.kind);
         h.buttonRow.removeAllViews();
@@ -210,20 +184,17 @@ public class FileProvisionActivity extends Activity {
                 addBtn(h, "انتخاب از دستگاه", v -> pickLocal(a));
                 addBtn(h, "دانلود", v -> startDownload(a));
                 break;
-
             case FOUND_IN_CACHE:
                 h.statusText.setText("نسخهٔ قبلی روی گوشی پیدا شد");
                 addBtn(h, "استفاده از نسخهٔ قبلی", v -> useCached(a));
                 addBtn(h, "دانلود دوباره", v -> startDownload(a));
                 break;
-
             case DOWNLOADING:
                 h.statusText.setText("در حال دانلود… " + a.progressPercent() + "%");
                 h.progressBar.setVisibility(View.VISIBLE);
                 h.progressBar.setProgress(a.progressPercent());
                 addBtn(h, "توقف", v -> pauseDownload(a));
                 break;
-
             case PAUSED_ERROR:
                 h.statusText.setText("متوقف شد: " + (a.lastError != null ? a.lastError : "خطای ناشناخته"));
                 h.statusText.setTextColor(0xFFE54545);
@@ -232,13 +203,11 @@ public class FileProvisionActivity extends Activity {
                 addBtn(h, "ادامهٔ دانلود", v -> startDownload(a));
                 addBtn(h, "آدرس سفارشی", v -> promptCustomUrl(a));
                 break;
-
             case READY_LOCAL:
                 h.statusText.setText("از حافظهٔ گوشی انتخاب شد ✓");
                 h.statusText.setTextColor(Ui.PRIMARY);
                 addBtn(h, "تغییر فایل", v -> pickLocal(a));
                 break;
-
             case READY_DOWNLOADED:
                 h.statusText.setText("دانلود کامل شد ✓");
                 h.statusText.setTextColor(Ui.PRIMARY);
@@ -250,7 +219,6 @@ public class FileProvisionActivity extends Activity {
                     refreshContinueButton();
                 });
                 break;
-
             case FAILED:
                 h.statusText.setText("خطا: " + a.lastError);
                 h.statusText.setTextColor(0xFFE54545);
@@ -264,9 +232,8 @@ public class FileProvisionActivity extends Activity {
     private void addBtn(CardHolder h, String text, View.OnClickListener l) {
         android.widget.Button b = Ui.outlineButton(this, text);
         b.setTextSize(13);
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
-        lp.rightMargin = Ui.dp(this, 8);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+        lp.rightMargin = Ui.dp(this, 8); // اصلاح شده از marginEnd
         b.setOnClickListener(l);
         h.buttonRow.addView(b, lp);
     }
@@ -281,8 +248,7 @@ public class FileProvisionActivity extends Activity {
                 break;
             }
         }
-        android.widget.Button btn = Ui.primaryButton(this,
-                allReady ? "شروع نصب" : "منتظر تکمیل فایل‌های بالا…");
+        android.widget.Button btn = Ui.primaryButton(this, allReady ? "شروع نصب" : "منتظر تکمیل فایل‌های بالا…");
         btn.setEnabled(allReady);
         btn.setAlpha(allReady ? 1f : 0.5f);
         btn.setOnClickListener(v -> {
@@ -292,13 +258,10 @@ public class FileProvisionActivity extends Activity {
         continueBtnHolder.addView(btn, Ui.matchWrap());
     }
 
-    // ------------------------------------------------------ انتخاب محلی
-
     private void pickLocal(FileAsset a) {
         Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
         i.addCategory(Intent.CATEGORY_OPENABLE);
         i.setType("*/*");
-        // شناسایی این‌که کدام asset درخواست شده از طریق requestCode
         startActivityForResult(i, REQ_PICK_BASE + a.kind.ordinal());
     }
 
@@ -336,8 +299,6 @@ public class FileProvisionActivity extends Activity {
         }
     }
 
-    // ----------------------------------------------------------- کش عمومی
-
     private void useCached(FileAsset a) {
         new Thread(() -> {
             try {
@@ -359,22 +320,16 @@ public class FileProvisionActivity extends Activity {
     private void exportToCache(FileAsset a) {
         new Thread(() -> {
             try {
-                //noinspection ResultOfMethodCallIgnored
                 cacheDir.mkdirs();
                 File src = a.destFile(dlDir);
                 File dst = a.cacheFile(cacheDir);
-                Files.copy(src.toPath(), dst.toPath(),
-                        java.nio.file.StandardCopyOption.REPLACE_EXISTING);
-                handler.post(() -> Toast.makeText(this,
-                        "ذخیره شد؛ دفعهٔ بعد نیازی به دانلود دوباره نیست", Toast.LENGTH_LONG).show());
+                Files.copy(src.toPath(), dst.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                handler.post(() -> Toast.makeText(this, "ذخیره شد؛ دفعهٔ بعد نیازی به دانلود دوباره نیست", Toast.LENGTH_LONG).show());
             } catch (Exception e) {
-                handler.post(() -> Toast.makeText(this,
-                        "ذخیره ممکن نشد: " + e.getMessage(), Toast.LENGTH_LONG).show());
+                handler.post(() -> Toast.makeText(this, "ذخیره ممکن نشد: " + e.getMessage(), Toast.LENGTH_LONG).show());
             }
         }).start();
     }
-
-    // ------------------------------------------------------------- دانلود
 
     private void startDownload(FileAsset a) {
         a.state = FileAsset.State.DOWNLOADING;
@@ -386,7 +341,7 @@ public class FileProvisionActivity extends Activity {
             } catch (IOException e) {
                 handler.post(() -> {
                     a.state = FileAsset.State.PAUSED_ERROR;
-                    a.lastError = "Download address not found: " + e.getMessage();
+                    a.lastError = "آدرس دانلود پیدا نشد: " + e.getMessage();
                     renderCardState(a);
                 });
                 return;
@@ -425,6 +380,7 @@ public class FileProvisionActivity extends Activity {
             });
         }, "download-" + a.kind.id).start();
     }
+
     private void pauseDownload(FileAsset a) {
         ResumableDownloader d = activeDownloaders.get(a.kind);
         if (d != null) d.cancel();
@@ -433,24 +389,18 @@ public class FileProvisionActivity extends Activity {
         renderCardState(a);
     }
 
-        private String resolveUrl(FileAsset a) throws IOException {
+    private String resolveUrl(FileAsset a) throws IOException {
         if (a.customUrl != null && !a.customUrl.isEmpty()) return a.customUrl;
         Prefs p = Prefs.of(this);
         switch (a.kind) {
-            case ROOTFS:
-                return p.getRootfsUrl();
-            case NODE:
-                return BootstrapInstaller.resolveNodeUrl(p);
-            case PROOT:
-                return BootstrapInstaller.resolveTermuxDeb(BootstrapInstaller.PROOT_POOL, "proot_");
-            case LIBTALLOC:
-                return BootstrapInstaller.resolveTermuxDeb(BootstrapInstaller.LIBTALLOC_POOL, "libtalloc_");
-            case LIBSHMEM:
-                return BootstrapInstaller.resolveTermuxDeb(BootstrapInstaller.LIBANDROID_SHMEM_POOL, "libandroid-shmem_");
-            default:
-                throw new IOException("Unknown file type");
+            case ROOTFS: return p.getRootfsUrl();
+            case NODE: return BootstrapInstaller.resolveNodeUrl(p);
+            case PROOT: return BootstrapInstaller.resolveTermuxDeb(BootstrapInstaller.PROOT_POOL, "proot_");
+            case LIBTALLOC: return BootstrapInstaller.resolveTermuxDeb(BootstrapInstaller.LIBTALLOC_POOL, "libtalloc_");
+            case LIBSHMEM: return BootstrapInstaller.resolveTermuxDeb(BootstrapInstaller.LIBANDROID_SHMEM_POOL, "libandroid-shmem_");
+            default: throw new IOException("نوع فایل ناشناخته");
         }
-        }
+    }
 
     private void promptCustomUrl(FileAsset a) {
         EditText input = new EditText(this);
