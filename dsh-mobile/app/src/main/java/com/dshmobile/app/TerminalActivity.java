@@ -22,8 +22,8 @@ import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 
 /**
- * 容器终端：在 proot Ubuntu 里跑一个持久 bash（管道收发，非 PTY）。
- * cd / 环境变量等状态在会话内保持；命令卡死时点「重启」杀掉整个 shell 重来。
+ * Container terminal: runs a persistent bash in proot Ubuntu (pipe I/O, non-PTY).
+ * cd/environment variables etc. are maintained within the session; if a command hangs, click "Restart" to kill the entire shell and start over.
  */
 public class TerminalActivity extends Activity {
 
@@ -33,7 +33,7 @@ public class TerminalActivity extends Activity {
     private static final int FG_DIM = Color.parseColor("#8B949E");
     private static final int ACCENT = Color.parseColor("#58A6FF");
     private static final int DIVIDER = Color.parseColor("#30363D");
-    /** 输出缓冲上限：超出后丢弃早期内容，防长任务刷屏撑爆内存。 */
+    /** Output buffer limit: discard early content when exceeded to prevent long tasks from consuming memory. */
     private static final int MAX_BUFFER = 200_000;
     private static final int KEEP_BUFFER = 150_000;
 
@@ -60,33 +60,33 @@ public class TerminalActivity extends Activity {
         root.setOrientation(LinearLayout.VERTICAL);
         root.setBackgroundColor(BG);
 
-        // 顶栏：标题 + 清屏/重启
+        // Top bar: Title + Clear/Restart
         LinearLayout bar = new LinearLayout(this);
         bar.setOrientation(LinearLayout.HORIZONTAL);
         bar.setGravity(Gravity.CENTER_VERTICAL);
         int bp = Ui.dp(this, 8);
         bar.setPadding(bp, bp, bp, bp);
         TextView title = new TextView(this);
-        title.setText("容器终端");
+        title.setText("Container Terminal");
         title.setTextColor(FG);
         title.setTextSize(16);
         title.setTypeface(Typeface.DEFAULT_BOLD);
         bar.addView(title, new LinearLayout.LayoutParams(
                 0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
-        bar.addView(action("清屏", v -> {
+        bar.addView(action("Clear", v -> {
             synchronized (lock) {
                 buffer.setLength(0);
             }
             output.setText("");
         }));
-        bar.addView(action("重启", v -> startShell()));
+        bar.addView(action("Restart", v -> startShell()));
         root.addView(bar);
         View div = new View(this);
         div.setBackgroundColor(DIVIDER);
         root.addView(div, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, Ui.dp(this, 0.5f)));
 
-        // 输出区
+        // Output area
         output = new TextView(this);
         output.setTextColor(FG);
         output.setTextSize(12);
@@ -99,7 +99,7 @@ public class TerminalActivity extends Activity {
         root.addView(scroll, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
 
-        // 输入行
+        // Input line
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
@@ -109,7 +109,7 @@ public class TerminalActivity extends Activity {
         input = new EditText(this);
         input.setTextColor(FG);
         input.setHintTextColor(FG_DIM);
-        input.setHint("输入命令，回车执行");
+        input.setHint("Enter command, press Enter to execute");
         input.setTextSize(13);
         input.setTypeface(Typeface.MONOSPACE);
         input.setSingleLine(true);
@@ -121,7 +121,7 @@ public class TerminalActivity extends Activity {
         });
         row.addView(input, new LinearLayout.LayoutParams(
                 0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
-        row.addView(action("执行", v -> send()));
+        row.addView(action("Execute", v -> send()));
         root.addView(row);
 
         setContentView(root);
@@ -143,7 +143,7 @@ public class TerminalActivity extends Activity {
     private void startShell() {
         stopShell();
         if (!ProotRunner.prootBin(this).isFile() || !ProotRunner.rootfsDir(this).isDirectory()) {
-            append("容器尚未安装，请先完成初始化。\n");
+            append("Container not installed yet, please complete initialization first.\n");
             return;
         }
         try {
@@ -151,15 +151,15 @@ public class TerminalActivity extends Activity {
             stdin = shell.getOutputStream();
             Process p = shell;
             new Thread(() -> readLoop(p), "dsh-term-read").start();
-            append("已连接容器 shell（工作目录 /home/dsh；命令卡死可点「重启」中断）\n");
+            append("Connected to container shell (working directory /home/dsh; click 'Restart' to interrupt if command hangs)\n");
         } catch (IOException e) {
-            append("启动 shell 失败: " + e.getMessage() + "\n");
+            append("Failed to start shell: " + e.getMessage() + "\n");
         }
     }
 
     private void stopShell() {
         if (shell != null) {
-            // proot 带 --kill-on-exit，destroy 后容器内进程树一并退出
+            // proot with --kill-on-exit, destroy kills all processes in the container tree
             shell.destroy();
             shell = null;
         }
@@ -176,9 +176,9 @@ public class TerminalActivity extends Activity {
             }
         } catch (IOException ignored) {
         }
-        // 只有当前会话自然退出才提示（被「重启」替换掉的旧会话不刷提示）
+        // Only prompt if current session exits naturally (old session replaced by "Restart" does not show prompt)
         if (p == shell) {
-            append("\n[会话已结束，点「重启」重新连接]\n");
+            append("\n[Session ended, click 'Restart' to reconnect]\n");
         }
     }
 
@@ -187,7 +187,7 @@ public class TerminalActivity extends Activity {
         input.setText("");
         OutputStream out = stdin;
         if (shell == null || out == null || !shell.isAlive()) {
-            append("（shell 未连接，点右上角「重启」）\n");
+            append("(shell not connected, click 'Restart' in top right)\n");
             return;
         }
         if (!cmd.isEmpty()) {
@@ -198,7 +198,7 @@ public class TerminalActivity extends Activity {
                 out.write((cmd + "\n").getBytes(StandardCharsets.UTF_8));
                 out.flush();
             } catch (IOException e) {
-                handler.post(() -> append("[写入失败: " + e.getMessage() + "]\n"));
+                handler.post(() -> append("[Write failed: " + e.getMessage() + "]\n"));
             }
         }, "dsh-term-write").start();
     }
@@ -208,7 +208,7 @@ public class TerminalActivity extends Activity {
             buffer.append(s);
             if (buffer.length() > MAX_BUFFER) {
                 buffer.delete(0, buffer.length() - KEEP_BUFFER);
-                buffer.insert(0, "…（早期输出已截断）\n");
+                buffer.insert(0, "…(early output truncated)\n");
             }
         }
         scheduleFlush();
