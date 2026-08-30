@@ -29,14 +29,12 @@ import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.TextView;
-
 import java.io.IOException;
 import java.net.HttpURLConnection;
 import java.net.URL;
 
-/** 主界面：全屏 WebView 加载 dsh Web UI，就绪前显示 DeepSeek 风格启动屏。 */
+/** Main activity: Full-screen WebView loading dsh Web UI, showing DeepSeek-style splash screen until ready. */
 public class MainActivity extends Activity {
-
     private WebView webView;
     private FrameLayout splash;
     private TextView splashStatus;
@@ -53,20 +51,19 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         requestWindowFeature(Window.FEATURE_NO_TITLE);
-
         Prefs prefs = Prefs.of(this);
         if (!prefs.isSetupDone()) {
-            startActivity(new Intent(this, SetupActivity.class));
+            startActivity(new Intent(this, FileProvisionActivity.class));
             finish();
             return;
         }
         port = prefs.getPort();
         handler = new Handler(Looper.getMainLooper());
         injector = new MobileUiInjector(this);
-
-        // 权限适配：Android 12 及以下请求存储权限（/sdcard/dsh-shared 兜底映射）；
-        // Android 13+（含 16）前台服务通知改为主动申请 POST_NOTIFICATIONS——
-        // targetSdk 28 虽有系统兜底弹窗，但时机不可控，显式申请更可靠
+        
+        // Permission adaptation: Request storage permission for Android 12 and below (fallback mapping for /sdcard/dsh-shared);
+        // For Android 13+ (including 16), foreground service notification changed to actively requesting POST_NOTIFICATIONS —
+        // Although targetSdk 28 has a system fallback dialog, the timing is uncontrollable, explicit request is more reliable.
         java.util.List<String> perms = new java.util.ArrayList<>();
         if (android.os.Build.VERSION.SDK_INT < 33) {
             if (checkSelfPermission(android.Manifest.permission.WRITE_EXTERNAL_STORAGE)
@@ -80,7 +77,7 @@ public class MainActivity extends Activity {
         if (!perms.isEmpty()) {
             requestPermissions(perms.toArray(new String[0]), 1);
         }
-
+        
         buildUi();
         warnIfWebViewTooOld();
         checkUpdate();
@@ -88,9 +85,9 @@ public class MainActivity extends Activity {
         waitForServerAndLoad();
     }
 
-    // ---------- 版本更新检查 ----------
+    // ---------- Version update check ----------
 
-    /** 进入 App 时检查 GitHub Releases 最新版本，有新版本弹更新提示。静默失败。 */
+    /** Check GitHub Releases for the latest version when entering the App, show update prompt if a new version is available. Fails silently. */
     private void checkUpdate() {
         new Thread(() -> {
             try {
@@ -113,7 +110,7 @@ public class MainActivity extends Activity {
                 String notes = j.optString("body", "");
                 handler.post(() -> maybeShowUpdate(tag, notes));
             } catch (Exception ignored) {
-                // 断网/GitHub 不可达：静默跳过，不影响使用
+                // Offline/GitHub unreachable: Skip silently, does not affect usage
             }
         }, "dsh-update-check").start();
     }
@@ -125,22 +122,22 @@ public class MainActivity extends Activity {
         String body = notes == null ? "" : notes.trim();
         if (body.length() > 500) body = body.substring(0, 500) + "…";
         new android.app.AlertDialog.Builder(this)
-                .setTitle("发现新版本 " + tag)
-                .setMessage(body.isEmpty() ? "当前 v" + currentVersion() + "，可更新到 " + tag + "。" : body)
-                .setPositiveButton("立即更新", (d, w) -> {
+                .setTitle("New version found " + tag)
+                .setMessage(body.isEmpty() ? "Current v" + currentVersion() + ", update to " + tag + "." : body)
+                .setPositiveButton("Update Now", (d, w) -> {
                     try {
-                        // 固定名资产直链，浏览器下载后用户手动安装
+                        // Fixed-name asset direct link, user manually installs after browser download
                         startActivity(new android.content.Intent(android.content.Intent.ACTION_VIEW,
                                 android.net.Uri.parse("https://github.com/Ajwyunsx/deepseek-harness-mobile/releases/latest/download/dsh-mobile.apk")));
                     } catch (Exception e) {
-                        android.widget.Toast.makeText(this, "无法打开下载链接", android.widget.Toast.LENGTH_SHORT).show();
+                        android.widget.Toast.makeText(this, "Cannot open download link", android.widget.Toast.LENGTH_SHORT).show();
                     }
                 })
-                .setNegativeButton("稍后", null)
+                .setNegativeButton("Later", null)
                 .show();
     }
 
-    /** 运行时读取自身 versionName（AGP 9 默认不生成 BuildConfig）。 */
+    /** Read own versionName at runtime (AGP 9 does not generate BuildConfig by default). */
     private String currentVersion() {
         try {
             return getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
@@ -149,7 +146,7 @@ public class MainActivity extends Activity {
         }
     }
 
-    /** 语义化版本比较：a>b 返回正数，a<b 返回负数，相等 0。 */
+    /** Semantic version comparison: returns positive if a>b, negative if a<b, 0 if equal. */
     private static int compareVersion(String a, String b) {
         String[] pa = a.split("\\."), pb = b.split("\\.");
         int n = Math.max(pa.length, pb.length);
@@ -169,9 +166,9 @@ public class MainActivity extends Activity {
         }
     }
 
-    /** 老 WebView（Chrome < 116，EMUI/旧系统常见）缺一堆现代 API，
-     *  dsh 界面会报错甚至渲染进程崩溃（issue #2/#4）。polyfill 已尽力补，
-     *  仍提示用户去更新内核——这是治本。 */
+    /** Old WebView (Chrome < 116, common in EMUI/old systems) lacks a bunch of modern APIs,
+     *  dsh UI will report errors or even crash the rendering process (issue #2/#4). Polyfills try their best to patch,
+     *  still prompt user to update the kernel — this is the root cure. */
     private void warnIfWebViewTooOld() {
         try {
             android.content.pm.PackageInfo pi = android.webkit.WebView.getCurrentWebViewPackage();
@@ -181,18 +178,16 @@ public class MainActivity extends Activity {
             int major = Integer.parseInt(dot > 0 ? v.substring(0, dot) : v);
             if (major < 116) {
                 android.widget.Toast.makeText(this,
-                        "浏览器内核过旧（" + v + "），dsh 界面可能报错或闪退，"
-                                + "请更新 Android System WebView 或 Chrome",
+                        "Browser kernel too old (" + v + "), dsh UI may error or crash, please update Android System WebView or Chrome",
                         android.widget.Toast.LENGTH_LONG).show();
             }
         } catch (Exception ignored) {
-            // 版本号解析不了就不提示，不阻断主流程
+            // If version number cannot be parsed, do not prompt, do not block the main flow
         }
     }
 
     private void buildUi() {
         FrameLayout root = new FrameLayout(this);
-
         webView = new WebView(this);
         WebSettings s = webView.getSettings();
         s.setJavaScriptEnabled(true);
@@ -206,35 +201,35 @@ public class MainActivity extends Activity {
         s.setAllowFileAccess(false);
         s.setAllowContentAccess(false);
         s.setJavaScriptCanOpenWindowsAutomatically(true);
+        
         webView.setWebViewClient(new WebViewClient() {
             @Override
             public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
                 pageFailed = false;
                 injector.injectEarlyPolyfill(view);
             }
-
             @Override
             public void onPageFinished(WebView view, String url) {
                 if (pageFailed) return;
                 injector.inject(view);
                 dismissSplash();
             }
-
             @Override
             public void onReceivedError(WebView view, WebResourceRequest request,
                                         WebResourceError error) {
-                // 只关心主框架：子资源失败不影响页面可用性
+                // Only care about main frame: sub-resource failure does not affect page usability
                 if (request.isForMainFrame()) {
                     pageFailed = true;
                     scheduleReload();
                 }
             }
         });
+        
         webView.setWebChromeClient(new WebChromeClient() {
             /**
-             * 网页里的 <input type="file">（dsh 附件/上传插件都走这个）在
-             * Android WebView 里默认被静默吞掉——必须在这里调起系统文件
-             * 选择器，否则点上传毫无反应。
+             * <input type="file"> in the web page (dsh attachments/upload plugins all go through this) is
+             * silently swallowed by default in Android WebView — must invoke the system file
+             * picker here, otherwise clicking upload has no response.
              */
             @Override
             public boolean onShowFileChooser(WebView view, ValueCallback<Uri[]> callback,
@@ -242,36 +237,34 @@ public class MainActivity extends Activity {
                 if (fileCallback != null) fileCallback.onReceiveValue(null);
                 fileCallback = callback;
                 try {
-                    // createIntent() 自带 accept 类型与多选标志
+                    // createIntent() comes with built-in accept types and multi-select flags
                     startActivityForResult(params.createIntent(), REQ_FILE_CHOOSER);
                     return true;
                 } catch (Exception e) {
-                    // 没有能处理选取的应用等情况：归还回调避免网页侧卡死
+                    // No app available to handle selection, etc.: return callback to avoid web side getting stuck
                     fileCallback = null;
                     callback.onReceiveValue(null);
                     return true;
                 }
             }
         });
+        
         webView.addJavascriptInterface(new DshBridge(), "DshNative");
         root.addView(webView, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-
         root.addView(buildFabs());
-
         splash = buildSplash();
         root.addView(splash, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-
         setContentView(root);
     }
 
     /**
-     * 网页 → 原生桥（inject.js 拦截网页按钮后调用）。
-     * 注意：@JavascriptInterface 方法跑在 WebView 后台线程，UI 操作必须 post 回主线程。
+     * Web -> Native bridge (called after inject.js intercepts web buttons).
+     * Note: @JavascriptInterface methods run on the WebView background thread, UI operations must be posted back to the main thread.
      */
     private final class DshBridge {
-        /** 设置弹窗「打开配置文件」：桌面走 xdg-open，容器里没有必失败 → 原生编辑器。 */
+        /** Settings popup "Open config file": Desktop uses xdg-open, container has none so it will definitely fail -> Native editor. */
         @android.webkit.JavascriptInterface
         public void openConfig() {
             handler.post(() -> {
@@ -280,8 +273,7 @@ public class MainActivity extends Activity {
                 }
             });
         }
-
-        /** 设置-插件页「添加插件」：后台线程跑 dsh plugin --profile web add，完成后回调 JS。 */
+        /** Settings-Plugin page "Add plugin": Run dsh plugin --profile web add in background thread, callback to JS when done. */
         @android.webkit.JavascriptInterface
         public void installPlugin(final String spec) {
             new Thread(() -> {
@@ -299,7 +291,7 @@ public class MainActivity extends Activity {
         }
     }
 
-    /** 右缘悬浮按钮组：文件管理器（上）+ 容器终端（下），半透明避免遮挡 dsh 界面。 */
+    /** Right-edge floating button group: File manager (top) + Container terminal (bottom), semi-transparent to avoid blocking dsh UI. */
     private View buildFabs() {
         LinearLayout col = new LinearLayout(this);
         col.setOrientation(LinearLayout.VERTICAL);
@@ -339,15 +331,14 @@ public class MainActivity extends Activity {
     private FrameLayout buildSplash() {
         FrameLayout fl = new FrameLayout(this);
         fl.setBackgroundColor(Ui.bg(this));
-
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
         box.setGravity(Gravity.CENTER);
         int pad = Ui.dp(this, 36);
         box.setPadding(pad, pad, pad, pad);
-
-        // DeepSeek Harness 官方鲸鱼标（图标本身含品牌识别，不再配文字）
-        // 矢量本体是黑色填充，深色模式下按文字色着色，否则黑鲸贴黑底看不见
+        
+        // DeepSeek Harness official whale logo (the icon itself contains brand recognition, no text configured)
+        // The vector body is black filled, colored by text color in dark mode, otherwise black whale on black background is invisible
         ImageView logo = new ImageView(this);
         Drawable d = getResources().getDrawable(R.drawable.ic_dsh_brand, null);
         logo.setImageDrawable(d);
@@ -355,34 +346,34 @@ public class MainActivity extends Activity {
         int logoSize = Ui.dp(this, 96);
         LinearLayout.LayoutParams llp = new LinearLayout.LayoutParams(logoSize, logoSize);
         box.addView(logo, llp);
-
+        
         ProgressBar pb = new ProgressBar(this);
         pb.setIndeterminateTintList(ColorStateList.valueOf(Ui.PRIMARY));
         LinearLayout.LayoutParams plp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         plp.topMargin = Ui.dp(this, 32);
         box.addView(pb, plp);
-
-        splashStatus = Ui.hint(this, "正在启动容器…");
+        
+        splashStatus = Ui.hint(this, "Starting container...");
         splashStatus.setGravity(Gravity.CENTER);
         LinearLayout.LayoutParams stlp = Ui.matchWrap();
         stlp.topMargin = Ui.dp(this, 16);
         box.addView(splashStatus, stlp);
-
+        
         LinearLayout btns = new LinearLayout(this);
         btns.setGravity(Gravity.CENTER);
         btns.setOrientation(LinearLayout.HORIZONTAL);
         LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         blp.topMargin = Ui.dp(this, 40);
-
-        Button settings = Ui.outlineButton(this, "设置");
+        
+        Button settings = Ui.outlineButton(this, "Settings");
         settings.setOnClickListener(v ->
                 startActivity(new Intent(this, SettingsActivity.class)));
         btns.addView(settings);
-
-        // 启动失败时也能进终端排查容器（Web 服务起不来时尤其有用）
-        Button term = Ui.outlineButton(this, "终端");
+        
+        // Can also enter terminal to troubleshoot container when startup fails (especially useful when Web service fails to start)
+        Button term = Ui.outlineButton(this, "Terminal");
         LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, Ui.dp(this, 48));
         tlp.leftMargin = Ui.dp(this, 16);
@@ -390,18 +381,17 @@ public class MainActivity extends Activity {
         term.setOnClickListener(v ->
                 startActivity(new Intent(this, TerminalActivity.class)));
         btns.addView(term);
-
-        Button reinstall = Ui.primaryButton(this, "重新安装");
+        
+        Button reinstall = Ui.primaryButton(this, "Reinstall");
         LinearLayout.LayoutParams rlp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, Ui.dp(this, 48));
         rlp.leftMargin = Ui.dp(this, 16);
         reinstall.setLayoutParams(rlp);
         reinstall.setOnClickListener(v ->
-                startActivity(new Intent(this, SetupActivity.class)));
+                startActivity(new Intent(this, FileProvisionActivity.class)));
         btns.addView(reinstall);
-
+        
         box.addView(btns, blp);
-
         FrameLayout.LayoutParams flp = new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         flp.gravity = Gravity.CENTER;
@@ -409,7 +399,7 @@ public class MainActivity extends Activity {
         return fl;
     }
 
-    /** 后台轮询 Web 服务（真实 HTTP 请求），就绪后加载页面；启动屏保留到页面渲染完成。 */
+    /** Poll Web service in background (real HTTP request), load page when ready; keep splash screen until page rendering is complete. */
     private void waitForServerAndLoad() {
         stopPolling = false;
         new Thread(() -> {
@@ -423,8 +413,8 @@ public class MainActivity extends Activity {
                 final long left = (deadline - System.currentTimeMillis()) / 1000;
                 handler.post(() -> splashStatus.setText(
                         HarnessService.isRunning()
-                                ? "容器已启动，等待 Web 服务就绪… (" + left + "s)"
-                                : "正在启动容器… (" + left + "s)"));
+                                ? "Container started, waiting for Web service ready... (" + left + "s)"
+                                : "Starting container... (" + left + "s)"));
                 try {
                     Thread.sleep(1000);
                 } catch (InterruptedException e) {
@@ -435,10 +425,10 @@ public class MainActivity extends Activity {
             handler.post(() -> {
                 if (isFinishing()) return;
                 if (ok) {
-                    splashStatus.setText("正在加载界面…");
+                    splashStatus.setText("Loading UI...");
                     loadMainUrl();
                 } else {
-                    splashStatus.setText("等待超时。请到设置查看日志，或点“重新安装”。");
+                    splashStatus.setText("Timeout. Check logs in settings, or tap 'Reinstall'.");
                 }
             });
         }, "dsh-port-poll").start();
@@ -449,15 +439,15 @@ public class MainActivity extends Activity {
         webView.loadUrl("http://127.0.0.1:" + port + "/");
     }
 
-    /** 主框架加载失败：恢复启动屏提示并有界自动重试（容器可能尚在预热或刚重启）。 */
+    /** Main frame loading failed: Restore splash screen prompt and bounded automatic retry (container might still be warming up or just restarted). */
     private void scheduleReload() {
         handler.post(() -> {
             if (isFinishing()) return;
             if (loadAttempts >= 15) {
-                showSplash("界面加载失败。请到设置查看日志，或点“重新安装”。");
+                showSplash("UI load failed. Check logs in settings, or tap 'Reinstall'.");
                 return;
             }
-            showSplash("连接 Web 服务失败，正在重试…");
+            showSplash("Web service connection failed, retrying...");
             handler.postDelayed(() -> {
                 if (!isFinishing()) loadMainUrl();
             }, 2000);
@@ -479,8 +469,8 @@ public class MainActivity extends Activity {
         }).start();
     }
 
-    /** TCP 能连上不代表 HTTP 服务就绪（proot/服务预热期会占了端口但不响应），
-     *  必须拿到真实 HTTP 响应才算就绪——否则 loadUrl 打过去就是白屏。 */
+    /** TCP connection does not mean HTTP service is ready (proot/service warm-up period will occupy the port but not respond),
+     *  must get a real HTTP response to be considered ready — otherwise loadUrl will result in a white screen. */
     private static boolean httpReady(int port) {
         HttpURLConnection conn = null;
         try {
@@ -489,7 +479,7 @@ public class MainActivity extends Activity {
             conn.setReadTimeout(1500);
             conn.setInstanceFollowRedirects(false);
             conn.getResponseCode();
-            return true; // 任何 HTTP 响应（含 404/302）都说明 Web 服务已在应答
+            return true; // Any HTTP response (including 404/302) means Web service is responding
         } catch (IOException e) {
             return false;
         } finally {
@@ -512,7 +502,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
-        // 从未加载成功过（url 为 null 或上次加载失败）且启动屏还在 → 重新轮询加载
+        // Never loaded successfully before (url is null or last load failed) and splash screen is still visible -> Re-poll and load
         if (webView != null && splash.getVisibility() == View.VISIBLE
                 && (webView.getUrl() == null || pageFailed)) {
             loadAttempts = 0;
@@ -544,7 +534,7 @@ public class MainActivity extends Activity {
             if (fileCallback != null) {
                 Uri[] results = null;
                 if (resultCode == RESULT_OK && data != null) {
-                    // 多选结果在 clipData，单选在 data
+                    // Multi-select results in clipData, single select in data
                     if (data.getClipData() != null) {
                         int n = data.getClipData().getItemCount();
                         results = new Uri[n];
