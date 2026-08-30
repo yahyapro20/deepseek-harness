@@ -6,6 +6,7 @@ import android.content.Intent;
 import android.content.res.ColorStateList;
 import android.net.Uri;
 import android.os.Bundle;
+import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
 import android.view.View;
@@ -52,7 +53,11 @@ public class FileProvisionActivity extends Activity {
         super.onCreate(savedInstanceState);
         dlDir = new File(ProotRunner.baseDir(this), "dl");
         dlDir.mkdirs();
-        cacheDir = new File(ProotRunner.sharedDir(), "bootstrap-cache");
+        
+        // تغییر مسیر کش به Download/dsh-shared/bootstrap-cache
+        File downloadDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
+        File dshShared = new File(downloadDir, "dsh-shared");
+        cacheDir = new File(dshShared, "bootstrap-cache");
 
         for (FileAsset.Kind k : FileAsset.Kind.values()) {
             if (alreadyExtracted(k)) continue;
@@ -233,7 +238,7 @@ public class FileProvisionActivity extends Activity {
         android.widget.Button b = Ui.outlineButton(this, text);
         b.setTextSize(13);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
-        lp.rightMargin = Ui.dp(this, 8); // اصلاح شده از marginEnd
+        lp.rightMargin = Ui.dp(this, 8);
         b.setOnClickListener(l);
         h.buttonRow.addView(b, lp);
     }
@@ -320,11 +325,17 @@ public class FileProvisionActivity extends Activity {
     private void exportToCache(FileAsset a) {
         new Thread(() -> {
             try {
-                cacheDir.mkdirs();
+                // مطمئن می‌شویم پوشه کش ساخته شده است
+                if (!cacheDir.exists()) {
+                    boolean created = cacheDir.mkdirs();
+                    if (!created && !cacheDir.exists()) {
+                        throw new IOException("Cannot create cache directory: " + cacheDir.getAbsolutePath());
+                    }
+                }
                 File src = a.destFile(dlDir);
                 File dst = a.cacheFile(cacheDir);
                 Files.copy(src.toPath(), dst.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
-                handler.post(() -> Toast.makeText(this, "ذخیره شد؛ دفعهٔ بعد نیازی به دانلود دوباره نیست", Toast.LENGTH_LONG).show());
+                handler.post(() -> Toast.makeText(this, "ذخیره شد در: " + dst.getAbsolutePath(), Toast.LENGTH_LONG).show());
             } catch (Exception e) {
                 handler.post(() -> Toast.makeText(this, "ذخیره ممکن نشد: " + e.getMessage(), Toast.LENGTH_LONG).show());
             }
