@@ -9,12 +9,12 @@ android {
     defaultConfig {
         applicationId = "com.dshmobile.app"
         minSdk = 26
-        // targetSdk 必须 ≤28：Android 10+ 对 targetSdk 29+ 的应用启用 SELinux 域
-        // 限制，禁止 exec 私有目录里的二进制（proot/node 都跑不了），Termux 同理。
-        // 这是硬性冲突，因此 Android 16（API 36）适配走另一条路：
-        // targetSdk 保持 28（Android 16 仍可正常安装运行），权限全部显式申请
-        // （POST_NOTIFICATIONS / MANAGE_EXTERNAL_STORAGE / 前台服务声明），
-        // 16KB 页设备在安装期由 BootstrapInstaller 检测并告警。
+        // targetSdk must be ≤ 28: Android 10+ enables SELinux domain
+        // restrictions, prohibiting exec of binaries in private directories (neither proot nor node can run), same applies to Termux.
+        // This is a hard conflict, so Android 16 (API 36) adaptation takes a different path:
+        // Keep targetSdk at 28 (Android 16 can still be installed and run normally), and request all permissions explicitly
+        // (POST_NOTIFICATIONS / MANAGE_EXTERNAL_STORAGE / foreground service declaration),
+        // 16KB page devices are detected and warned by BootstrapInstaller during installation.
         targetSdk = 28
         versionCode = 29
         versionName = "1.0.28"
