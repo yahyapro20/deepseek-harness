@@ -31,7 +31,7 @@ public final class BootstrapPack {
 
     public static void exportPack(ContentResolver resolver, Uri target, File dlDir, List<FileAsset> assets) throws Exception {
         OutputStream raw = resolver.openOutputStream(target);
-        if (raw == null) throw new IllegalStateException("امکان نوشتن فایل مقصد وجود ندارد");
+        if (raw == null) throw new IllegalStateException("Cannot write to destination file");
         try (OutputStream out = raw; ZipOutputStream zip = new ZipOutputStream(out)) {
             StringBuilder manifest = new StringBuilder();
             manifest.append(FORMAT).append('\n');
@@ -54,10 +54,10 @@ public final class BootstrapPack {
 
     public static Result importPack(ContentResolver resolver, Uri source, File dlDir, List<FileAsset> assets) {
         File temp = new File(dlDir, ".bootstrap-import");
-        if (!temp.exists() && !temp.mkdirs()) return new Result(false, "پوشه موقت ساخته نشد", 0);
+        if (!temp.exists() && !temp.mkdirs()) return new Result(false, "Failed to create temporary folder", 0);
         Map<String, File> extracted = new HashMap<>();
         try (InputStream raw = resolver.openInputStream(source)) {
-            if (raw == null) return new Result(false, "فایل قابل خواندن نیست", 0);
+            if (raw == null) return new Result(false, "File is not readable", 0);
             try (ZipInputStream zip = new ZipInputStream(raw)) {
             ZipEntry e; String manifest = null;
             while ((e = zip.getNextEntry()) != null) {
@@ -73,7 +73,7 @@ public final class BootstrapPack {
                 }
                 zip.closeEntry();
             }
-            if (manifest == null || !manifest.startsWith(FORMAT)) return new Result(false, "این فایل یک Bootstrap Pack معتبر نیست", 0);
+            if (manifest == null || !manifest.startsWith(FORMAT)) return new Result(false, "This file is not a valid Bootstrap Pack", 0);
             int count = 0;
             String[] lines = manifest.split("\\n");
             for (String line : lines) {
@@ -82,7 +82,7 @@ public final class BootstrapPack {
                 FileAsset a = findById(assets, p[0]); File f = extracted.get(p[0]);
                 if (a == null || f == null) continue;
                 long size = Long.parseLong(p[2]);
-                if (f.length() != size) throw new IllegalStateException(a.kind.displayName + ": اندازه فایل با manifest یکی نیست");
+                if (f.length() != size) throw new IllegalStateException(a.kind.displayName + ": file size does not match manifest");
                 ProvisionVerifier.Result vr = ProvisionVerifier.verify(a.kind, f, p[3]);
                 if (!vr.ok) throw new IllegalStateException(a.kind.displayName + ": " + vr.message);
                 File dest = a.destFile(dlDir);
@@ -92,10 +92,10 @@ public final class BootstrapPack {
                 count++;
             }
                 delete(temp);
-                return new Result(true, "Bootstrap Pack با موفقیت بررسی و وارد شد", count);
+                return new Result(true, "Bootstrap Pack verified and imported successfully", count);
             }
         } catch (Exception e) {
-            delete(temp); return new Result(false, "وارد کردن Pack ناموفق: " + e.getMessage(), 0);
+            delete(temp); return new Result(false, "Failed to import Pack: " + e.getMessage(), 0);
         }
     }
 
