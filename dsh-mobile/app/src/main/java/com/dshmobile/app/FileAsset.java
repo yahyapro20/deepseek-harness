@@ -3,19 +3,19 @@ package com.dshmobile.app;
 import java.io.File;
 
 /**
- * توصیف یکی از فایل‌های حجیم مورد نیاز برای راه‌اندازی (rootfs، proot،
- * libtalloc، libandroid-shmem، Node.js). هر AssetKind دقیقاً معادل یکی از
- * دانلودهای فعلی BootstrapInstaller است؛ این کلاس فقط «وضعیت + منبع» را
- * روی همان فایل مقصد (dl/xxx) نگه می‌دارد، منطق استخراج دست‌نخورده می‌ماند.
+ * Description of one of the large files required for bootstrapping (rootfs, proot,
+ * libtalloc, libandroid-shmem, Node.js). Each AssetKind corresponds exactly to one of
+ * the current BootstrapInstaller downloads; this class only keeps "state + source"
+ * on the same destination file (dl/xxx), leaving the extraction logic untouched.
  */
 public final class FileAsset {
 
     public enum Kind {
-        ROOTFS("rootfs", "ریشهٔ سیستم اوبونتو 22.04", "پایهٔ کل کانتینر؛ بدون این فایل هیچ‌چیز دیگری اجرا نمی‌شود.", "ubuntu-base.tar.gz"),
-        PROOT("proot", "proot (اجراکنندهٔ کانتینر)", "بدون نیاز به روت، برنامه‌های لینوکسی را داخل پوشهٔ اپ اجرا می‌کند.", "proot.deb"),
-        LIBTALLOC("libtalloc", "کتابخانهٔ libtalloc", "وابستگی proot برای مدیریت حافظه.", "libtalloc.deb"),
-        LIBSHMEM("libshmem", "کتابخانهٔ libandroid-shmem", "وابستگی proot برای حافظهٔ مشترک روی اندروید.", "libandroid-shmem.deb"),
-        NODE("node", "Node.js (نسخهٔ 22، ARM64)", "موتور اجرای DeepSeek Harness.", "node.tar.xz");
+        ROOTFS("rootfs", "Ubuntu 22.04 root filesystem", "The base of the entire container; without this file nothing else runs.", "ubuntu-base.tar.gz"),
+        PROOT("proot", "proot (container runner)", "Runs Linux programs inside the app folder without requiring root.", "proot.deb"),
+        LIBTALLOC("libtalloc", "libtalloc library", "proot dependency for memory management.", "libtalloc.deb"),
+        LIBSHMEM("libshmem", "libandroid-shmem library", "proot dependency for shared memory on Android.", "libandroid-shmem.deb"),
+        NODE("node", "Node.js (version 22, ARM64)", "DeepSeek Harness runtime engine.", "node.tar.xz");
 
         public final String id;
         public final String displayName;
@@ -31,25 +31,25 @@ public final class FileAsset {
     }
 
     public enum State {
-        /** هنوز نه فایل محلی انتخاب شده نه دانلودی شروع شده. */
+        /** Neither a local file selected nor a download started yet. */
         NOT_READY,
-        /** نسخهٔ قبلاً ذخیره‌شده در dsh-shared/bootstrap-cache پیدا شده، منتظر تأیید کاربر. */
+        /** Previously saved version found in dsh-shared/bootstrap-cache, awaiting user confirmation. */
         FOUND_IN_CACHE,
-        /** کاربر فایل را از حافظهٔ گوشی انتخاب کرد و کپی داخلی تمام شد. */
+        /** User selected the file from phone storage and internal copy completed. */
         READY_LOCAL,
-        /** دانلود در حال انجام است. */
+        /** Download in progress. */
         DOWNLOADING,
-        /** دانلود به‌خاطر قطعی شبکه/خطای سرور متوقف شده؛ رزوم ممکن است. */
+        /** Download paused due to network disconnection/server error; resume possible. */
         PAUSED_ERROR,
-        /** دانلود با موفقیت کامل شد. */
+        /** Download completed successfully. */
         READY_DOWNLOADED,
-        /** خطای غیرقابل‌رفع (مثلاً فضای دیسک کافی نیست). */
+        /** Unrecoverable error (e.g., insufficient disk space). */
         FAILED;
     }
 
     public final Kind kind;
     public State state = State.NOT_READY;
-    /** آدرس سفارشی که کاربر برای این فایل مشخصاً وارد کرده (اگر خالی، آدرس پیش‌فرض/میرور استفاده می‌شود). */
+    /** Custom URL explicitly entered by the user for this file (if empty, default/mirror URL is used). */
     public String customUrl;
     public long downloadedBytes;
     public long totalBytes;
@@ -59,7 +59,7 @@ public final class FileAsset {
         this.kind = kind;
     }
 
-    /** فایل مقصد نهایی داخل پوشهٔ dl/ (همان مسیری که BootstrapInstaller از قبل انتظارش را دارد). */
+    /** Final destination file inside the dl/ folder (the same path that BootstrapInstaller already expects). */
     public File destFile(File dlDir) {
         return new File(dlDir, kind.fileName);
     }
@@ -68,7 +68,7 @@ public final class FileAsset {
         return new File(dlDir, kind.fileName + ".part");
     }
 
-    /** فایل کش عمومی که با حذف/نصب مجدد اپ از بین نمی‌رود. */
+    /** Public cache file that persists across app uninstall/reinstall. */
     public File cacheFile(File publicCacheDir) {
         return new File(publicCacheDir, kind.fileName);
     }
