@@ -1,14 +1,12 @@
 package com.dshmobile.app;
 
 import android.content.Context;
-
 import org.apache.commons.compress.archivers.ar.ArArchiveEntry;
 import org.apache.commons.compress.archivers.ar.ArArchiveInputStream;
 import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
 import org.apache.commons.compress.archivers.tar.TarArchiveInputStream;
 import org.apache.commons.compress.compressors.gzip.GzipCompressorInputStream;
 import org.apache.commons.compress.compressors.xz.XZCompressorInputStream;
-
 import java.io.BufferedInputStream;
 import java.io.File;
 import java.io.FileInputStream;
@@ -27,24 +25,21 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * 首启引导安装：下载 Ubuntu rootfs、proot、Node.js，并在容器内安装 dsh。
- * 所有方法都在调用线程执行，由调用方放到后台线程。
+ * First-time bootstrap installation: Download Ubuntu rootfs, proot, Node.js, and install dsh inside the container.
+ * All methods execute on the calling thread, caller should put them in a background thread.
  */
 public final class BootstrapInstaller {
-
     public interface Listener {
         void onStage(String stage, int percent);
-
         void onLog(String line);
-
         void onDone(boolean success, String error);
     }
 
     private static final String TERMUX_POOL =
             "https://mirrors.ustc.edu.cn/termux/apt/termux-main/pool/main/";
-    private static final String PROOT_POOL = TERMUX_POOL + "p/proot/";
-    private static final String LIBTALLOC_POOL = TERMUX_POOL + "libt/libtalloc/";
-    private static final String LIBANDROID_SHMEM_POOL = TERMUX_POOL + "liba/libandroid-shmem/";
+    static final String PROOT_POOL = TERMUX_POOL + "p/proot/";
+    static final String LIBTALLOC_POOL = TERMUX_POOL + "libt/libtalloc/";
+    static final String LIBANDROID_SHMEM_POOL = TERMUX_POOL + "liba/libandroid-shmem/";
     private static final String NODE_SERIES = "latest-v22.x";
     private static final int CONNECT_TIMEOUT = 15000;
     private static final int READ_TIMEOUT = 60000;
@@ -73,10 +68,10 @@ public final class BootstrapInstaller {
     }
 
     private void checkCancelled() throws IOException {
-        if (cancelled) throw new IOException("已取消");
+        if (cancelled) throw new IOException("Cancelled");
     }
 
-    /** 执行完整安装流程。 */
+    /** Execute complete installation flow. */
     public void run() {
         try {
             File base = ProotRunner.baseDir(ctx);
@@ -85,44 +80,52 @@ public final class BootstrapInstaller {
             dl.mkdirs();
             File rootfs = ProotRunner.rootfsDir(ctx);
 
-            // 0. 宿主环境检查：部分 Android 15/16 设备是 16KB 页内核，
-            //    4KB 对齐的 ELF（Ubuntu/Node 官方包）在上面 exec 直接 ENOEXEC
+            // 0. Host environment check: Some Android 15/16 devices have 16KB page kernels,
+            //    4KB aligned ELFs (Ubuntu/Node official packages) will directly get ENOEXEC on exec
             long pageSize = android.system.Os.sysconf(android.system.OsConstants._SC_PAGESIZE);
-            log("宿主内核页大小: " + pageSize + " 字节");
+            log("Host kernel page size: " + pageSize + " bytes");
             if (pageSize == 16384) {
-                log("⚠ 这是 16KB 页设备：Ubuntu rootfs 与 Node.js 官方二进制为 4KB 对齐，"
-                        + "可能无法执行（Exec format error）；"
-                        + "proot 本体用 Termux 新版构建（16KB 对齐）不受影响。");
+                log("⚠ 16KB page device: Ubuntu rootfs & Node.js binaries are 4KB aligned, may fail to exec (Exec format error); proot uses Termux new builds (16KB aligned) and is unaffected.");
             }
 
             // 1. rootfs
             File rootfsTar = new File(dl, "ubuntu-base.tar.gz");
             if (!new File(rootfs, "bin/bash").isFile()) {
-                stage("下载 Ubuntu rootfs", 2);
-                download(prefs.getRootfsUrl(), rootfsTar, 2, 25);
+                if (rootfsTar.isFile()) {
+                    log("rootfs archive ready (local/cache), skipping download");
+                    stage("Download Ubuntu rootfs", 25);
+                } else {
+                    stage("Download Ubuntu rootfs", 2);
+                    download(prefs.getRootfsUrl(), rootfsTar, 2, 25);
+                }
                 checkCancelled();
-                stage("解压 rootfs", 26);
+                stage("Extract rootfs", 26);
                 deleteRecursively(rootfs);
                 //noinspection ResultOfMethodCallIgnored
                 rootfs.mkdirs();
                 extractTar(rootfsTar, rootfs, true, 0);
-                log("rootfs 解压完成");
+                log("rootfs extraction complete");
             } else {
-                log("rootfs 已存在，跳过");
+                log("rootfs exists, skipping");
             }
 
-            // 2. proot（含 loader：proot 启动任何 ELF 都需要它，编译内置路径指向
-            //    Termux 私有目录，跨 uid 读取即 EACCES，必须随包提取并设 PROOT_LOADER）
+            // 2. proot (includes loader: proot needs it to start any ELF, compiled built-in paths point to
+            //    Termux private directories, cross-uid read results in EACCES, must extract with package and set PROOT_LOADER)
             File proot = ProotRunner.prootBin(ctx);
             File loader = new File(base, "loader");
             if (!proot.isFile() || !loader.isFile()) {
-                stage("下载 proot", 32);
-                String debUrl = resolveTermuxDeb(PROOT_POOL, "proot_");
-                log("proot 包: " + debUrl);
                 File deb = new File(dl, "proot.deb");
-                download(debUrl, deb, 32, 40);
+                if (deb.isFile()) {
+                    log("proot archive ready (local/cache), skipping download");
+                    stage("Download proot", 40);
+                } else {
+                    stage("Download proot", 32);
+                    String debUrl = resolveTermuxDeb(PROOT_POOL, "proot_");
+                    log("proot package: " + debUrl);
+                    download(debUrl, deb, 32, 40);
+                }
                 checkCancelled();
-                stage("提取 proot", 41);
+                stage("Extract proot", 41);
                 extractProotFromDeb(deb, base);
                 //noinspection ResultOfMethodCallIgnored
                 proot.setExecutable(true, true);
@@ -130,86 +133,105 @@ public final class BootstrapInstaller {
                 loader.setExecutable(true, true);
                 //noinspection ResultOfMethodCallIgnored
                 new File(base, "loader32").setExecutable(true, true);
-                log("proot 与 loader 就绪");
+                log("proot and loader ready");
             } else {
-                log("proot 已存在，跳过");
+                log("proot exists, skipping");
             }
-            // 16KB 页设备上核对 proot/loader 的 ELF 对齐是否达标（Termux 新构建应为 16384）
+
+            // Verify if proot/loader ELF alignment meets standards on 16KB page devices (Termux new builds should be 16384)
             if (pageSize == 16384) {
                 long align = elfMaxAlign(proot);
-                log("proot ELF 对齐: " + align);
+                log("proot ELF alignment: " + align);
                 if (align >= 0 && align < 16384) {
-                    log("⚠ proot 二进制未按 16KB 对齐，在此设备上无法运行，请反馈此日志。");
+                    log("⚠ proot binary not 16KB aligned, cannot run on this device, please report this log.");
                 }
             }
 
-            // 2b. proot 依赖库（Termux proot 动态链接 libtalloc.so.2 / libandroid-shmem.so）
+            // 2b. proot dependency libraries (Termux proot dynamically links libtalloc.so.2 / libandroid-shmem.so)
             File libDir = new File(base, "lib");
             File tallocSo = new File(libDir, "libtalloc.so.2");
             if (!tallocSo.isFile()) {
-                stage("下载 proot 依赖库", 42);
+                stage("Download proot dependencies", 42);
                 //noinspection ResultOfMethodCallIgnored
                 libDir.mkdirs();
-                String tallocUrl = resolveTermuxDeb(LIBTALLOC_POOL, "libtalloc_");
-                log("libtalloc 包: " + tallocUrl);
+                
                 File tallocDeb = new File(dl, "libtalloc.deb");
-                download(tallocUrl, tallocDeb, 42, 43);
+                if (tallocDeb.isFile()) {
+                    log("libtalloc archive ready (local/cache), skipping download");
+                    stage("Download proot dependencies", 43);
+                } else {
+                    String tallocUrl = resolveTermuxDeb(LIBTALLOC_POOL, "libtalloc_");
+                    log("libtalloc package: " + tallocUrl);
+                    download(tallocUrl, tallocDeb, 42, 43);
+                }
                 extractLibsFromDeb(tallocDeb, libDir);
+                
                 checkCancelled();
-                String shmemUrl = resolveTermuxDeb(LIBANDROID_SHMEM_POOL, "libandroid-shmem_");
-                log("libandroid-shmem 包: " + shmemUrl);
+                
                 File shmemDeb = new File(dl, "libandroid-shmem.deb");
-                download(shmemUrl, shmemDeb, 43, 44);
+                if (shmemDeb.isFile()) {
+                    log("libandroid-shmem archive ready (local/cache), skipping download");
+                    stage("Download proot dependencies", 44);
+                } else {
+                    String shmemUrl = resolveTermuxDeb(LIBANDROID_SHMEM_POOL, "libandroid-shmem_");
+                    log("libandroid-shmem package: " + shmemUrl);
+                    download(shmemUrl, shmemDeb, 43, 44);
+                }
                 extractLibsFromDeb(shmemDeb, libDir);
-                log("proot 依赖库就绪");
+                log("proot dependencies ready");
             } else {
-                log("proot 依赖库已存在，跳过");
+                log("proot dependencies exist, skipping");
             }
 
             // 3. Node.js -> rootfs/opt/node
             File nodeBin = new File(rootfs, "opt/node/bin/node");
             if (!nodeBin.isFile()) {
-                stage("下载 Node.js", 45);
-                String nodeUrl = resolveNodeUrl();
-                log("Node 包: " + nodeUrl);
                 File nodeTar = new File(dl, "node.tar.xz");
-                download(nodeUrl, nodeTar, 45, 65);
+                if (nodeTar.isFile()) {
+                    log("Node.js archive ready (local/cache), skipping download");
+                    stage("Download Node.js", 65);
+                } else {
+                    stage("Download Node.js", 45);
+                    String nodeUrl = resolveNodeUrl(prefs);
+                    log("Node package: " + nodeUrl);
+                    download(nodeUrl, nodeTar, 45, 65);
+                }
                 checkCancelled();
-                stage("解压 Node.js", 66);
+                stage("Extract Node.js", 66);
                 deleteRecursively(new File(rootfs, "opt/node"));
                 //noinspection ResultOfMethodCallIgnored
                 new File(rootfs, "opt/node").mkdirs();
                 extractTar(nodeTar, new File(rootfs, "opt/node"), false, 1);
-                log("Node.js 就绪");
+                log("Node.js ready");
             } else {
-                log("Node.js 已存在，跳过");
+                log("Node.js exists, skipping");
             }
 
-            // 4. 容器内基础配置
-            stage("配置容器", 72);
+            // 4. Basic configuration inside container
+            stage("Configure container", 72);
             writeContainerConfig(rootfs);
 
-            // 4b. 编译工具链（dsh 依赖的 node-pty 需要 python3/make/g++ 现场编译）
+            // 4b. Compilation toolchain (node-pty, which dsh depends on, needs python3/make/g++ to compile on the spot)
             File gxx = new File(rootfs, "usr/bin/g++");
             if (!gxx.isFile()) {
-                stage("安装编译工具链", 74);
-                // 保底重试：网络/源抖动导致失败时清理重试一次，仍失败则跳过——
-                // 不中断整个安装（node-pty 在服务启动前还有 HarnessService 的兜底重编）。
+                stage("Install compilation toolchain", 74);
+                // Fallback retry: Clean and retry once when failure is caused by network/source jitter, skip if still failing —
+                // Do not interrupt the entire installation (node-pty still has HarnessService fallback recompilation before service startup).
                 boolean toolchainOk = false;
                 for (int attempt = 1; attempt <= 2 && !toolchainOk && !cancelled; attempt++) {
                     try {
-                        // 上次安装尝试若被系统杀掉（切后台/清理任务），容器里的 apt-get
-                        // 会变孤儿继续持有 dpkg 锁，重试永远 "Could not get lock"——先清理
+                        // If the last installation attempt was killed by the system (switched to background/cleared tasks), apt-get in the container
+                        // will become an orphan and continue to hold the dpkg lock, retry will always "Could not get lock" — clean up first
                         killStaleAptProcesses();
                         runInContainer(Arrays.asList("/usr/bin/apt-get",
                                 "-o", "DPkg::Lock::Timeout=180", "update"), 74, 78);
                         checkCancelled();
-                        // 上次若在 dpkg 配置阶段被中断，直接 install 会报
-                        // "dpkg was interrupted"——先修复半配置状态（无可修复时返回 0）
+                        // If interrupted during dpkg configuration stage last time, direct install will report
+                        // "dpkg was interrupted" — fix semi-configured state first (returns 0 if nothing to fix)
                         try {
                             runInContainer(Arrays.asList("/usr/bin/dpkg", "--configure", "-a"), 78, 78);
                         } catch (Exception e) {
-                            log("dpkg 状态修复未完成（忽略，继续安装）");
+                            log("dpkg state fix incomplete (ignored, continuing installation)");
                         }
                         runInContainer(Arrays.asList("/usr/bin/apt-get",
                                 "-o", "DPkg::Lock::Timeout=180",
@@ -218,23 +240,22 @@ public final class BootstrapInstaller {
                         toolchainOk = gxx.isFile();
                     } catch (Exception e) {
                         if (cancelled) throw e;
-                        log("编译工具链安装失败（第 " + attempt + " 次）: " + e.getMessage());
+                        log("Toolchain install failed (attempt " + attempt + "): " + e.getMessage());
                     }
                 }
                 if (!toolchainOk) {
-                    log("⚠ 编译工具链安装失败，已跳过。node-pty 会在服务启动时自动重试编译；"
-                            + "也可在网络好转后到设置里重置容器重装。");
+                    log("⚠ Toolchain install failed, skipped. node-pty will auto-retry on service startup; or reset container in settings when network improves.");
                 }
             } else {
-                log("编译工具链已存在，跳过");
+                log("Toolchain exists, skipping");
             }
 
-            // 5. 容器内安装 dsh
+            // 5. Install dsh inside container
             File dshBin = new File(rootfs, "opt/node/bin/dsh");
             if (!dshBin.isFile()) {
-                stage("安装 DeepSeek Harness", 83);
-                // 上次安装若被中断（杀进程/磁盘满），会留下半成品目录，
-                // npm 重命名时报 ENOTEMPTY 永远装不上——先清掉再装
+                stage("Install DeepSeek Harness", 83);
+                // If the last installation was interrupted (killed process/full disk), it will leave a semi-finished directory,
+                // npm will report ENOTEMPTY when renaming and never install — clear it first then install
                 File scopeDir = new File(rootfs, "opt/node/lib/node_modules/@deepseek-ai");
                 File[] stale = scopeDir.listFiles();
                 if (stale != null) {
@@ -250,65 +271,65 @@ public final class BootstrapInstaller {
                 runInContainer(Arrays.asList("/opt/node/bin/npm", "install", "-g",
                         "@deepseek-ai/dsh"), 85, 96);
             } else {
-                log("dsh 已安装，跳过");
+                log("dsh installed, skipping");
             }
 
-            // 5b. 校验 node-pty 原生模块。npm 装 dsh 时 node-pty 要 node-gyp 现场编译，
-            // 编译失败（常见原因：nodejs.org 头文件下载被墙）会被当 optional 依赖
-            // 静默跳过、安装"成功"，但 dsh web 启动即崩（subprocess 插件加载
-            // pty.node 失败）。此步独立于上面的 install：已装坏的环境重跑安装时
-            // 也能修复；服务启动前 HarnessService 也会做同样的自检兜底。
+            // 5b. Verify node-pty native module. When npm installs dsh, node-pty needs node-gyp to compile on the spot,
+            // compilation failure (common reason: nodejs.org header download blocked) will be silently skipped as an optional dependency,
+            // installation "succeeds", but dsh web crashes on startup (subprocess plugin fails to load
+            // pty.node). This step is independent of the above install: it can also fix an already broken environment when re-running installation;
+            // HarnessService will also do the same self-check fallback before service startup.
             if (NodePtyFixer.needsFix(rootfs)) {
                 if (!new File(rootfs, "usr/bin/g++").isFile()) {
-                    // 工具链步骤已被跳过/失败：这里必然编译不过，不硬失败——
-                    // 服务启动前 HarnessService 会带工具链重试（网络恢复后自愈）
-                    log("⚠ 无编译工具链，跳过 node-pty 编译（服务启动时会自动重试）");
+                    // Toolchain step was skipped/failed: It will definitely fail to compile here, do not hard fail —
+                    // HarnessService will retry with toolchain before service startup (self-heals after network recovery)
+                    log("⚠ No toolchain, skipping node-pty compile (will auto-retry on service startup)");
                 } else {
-                    stage("编译 node-pty 原生模块", 97);
-                    log("node-pty 缺少 pty.node，正在容器内重建…");
+                    stage("Compile node-pty native module", 97);
+                    log("node-pty lacks pty.node, rebuilding in container...");
                     File installLog = new File(ProotRunner.baseDir(ctx), "install.log");
                     if (!NodePtyFixer.fix(ctx, installLog)) {
-                        throw new IOException("node-pty 原生模块重建失败，请到设置查看日志");
+                        throw new IOException("node-pty native module rebuild failed, check logs in settings");
                     }
-                    log("node-pty 原生模块就绪");
+                    log("node-pty native module ready");
                 }
             }
-
             checkCancelled();
-            // 6. SSH 服务：本地终端（Termux / adb forward）连容器用
+
+            // 6. SSH service: Used for local terminal (Termux / adb forward) to connect to container
             ensureSshServer(rootfs);
             checkCancelled();
-            stage("完成", 100);
+            stage("Complete", 100);
             prefs.setSetupDone(true);
             listener.onDone(true, null);
         } catch (Exception e) {
-            log("安装失败: " + e.getMessage());
+            log("Install failed: " + e.getMessage());
             listener.onDone(false, e.getMessage());
         }
     }
 
     /**
-     * 安装容器内 SSH 服务（幂等）：openssh-server。
-     * host keys、/run/sshd、root 密码在每次启动 sshd 时确保（ProotRunner.startSshd）。
+     * Install SSH service inside container (idempotent): openssh-server.
+     * host keys, /run/sshd, root password are ensured on every sshd startup (ProotRunner.startSshd).
      */
     private void ensureSshServer(File rootfs) throws IOException, InterruptedException {
         if (new File(rootfs, "usr/sbin/sshd").isFile()) {
-            log("SSH 服务已安装，跳过");
+            log("SSH service installed, skipping");
             return;
         }
-        stage("安装 SSH 服务", 97);
-        // 保底重试：失败重试一次，再失败则跳过（服务启动前还有
-        // ensureSshServerInstalled 兜底补装，不至于整个安装被拖死）
+        stage("Install SSH service", 97);
+        // Fallback retry: Retry once on failure, skip if fails again (there is still
+        // ensureSshServerInstalled fallback installation before service startup, so the entire installation won't be dragged down)
         for (int attempt = 1; attempt <= 2 && !cancelled; attempt++) {
             try {
-                // 与工具链安装同理：先清残留 apt 进程与 dpkg 半配置状态
+                // Same as toolchain installation: clean up residual apt processes and dpkg semi-configured state first
                 killStaleAptProcesses();
                 runInContainer(Arrays.asList("/usr/bin/apt-get",
                         "-o", "DPkg::Lock::Timeout=180", "update"), 97, 97);
                 try {
                     runInContainer(Arrays.asList("/usr/bin/dpkg", "--configure", "-a"), 97, 97);
                 } catch (Exception e) {
-                    log("dpkg 状态修复未完成（忽略，继续安装）");
+                    log("dpkg state fix incomplete (ignored, continuing installation)");
                 }
                 runInContainer(Arrays.asList("/usr/bin/apt-get",
                         "-o", "DPkg::Lock::Timeout=180",
@@ -316,15 +337,15 @@ public final class BootstrapInstaller {
                 return;
             } catch (Exception e) {
                 if (cancelled) throw e;
-                log("SSH 服务安装失败（第 " + attempt + " 次）: " + e.getMessage());
+                log("SSH service install failed (attempt " + attempt + "): " + e.getMessage());
             }
         }
-        log("⚠ SSH 服务安装失败，已跳过（服务启动时会自动重试补装）");
+        log("⚠ SSH service install failed, skipped (will auto-retry on service startup)");
     }
 
     /**
-     * 服务启动前兜底（HarnessService 调用）：老容器没有 sshd 时联网补装，
-     * 失败只影响 SSH，不影响 Web 服务。日志追加到 logFile。
+     * Fallback before service startup (called by HarnessService): Install online when old container lacks sshd,
+     * failure only affects SSH, not Web service. Logs appended to logFile.
      */
     public static void ensureSshServerInstalled(Context ctx, File logFile) {
         if (new File(ProotRunner.rootfsDir(ctx), "usr/sbin/sshd").isFile()) return;
@@ -333,21 +354,19 @@ public final class BootstrapInstaller {
             public void onStage(String stage, int percent) {
                 appendLog(logFile, "[ssh] " + stage);
             }
-
             @Override
             public void onLog(String line) {
                 appendLog(logFile, "[ssh] " + line);
             }
-
             @Override
             public void onDone(boolean success, String error) {
             }
         });
         try {
             installer.ensureSshServer(ProotRunner.rootfsDir(ctx));
-            appendLog(logFile, "[ssh] openssh-server 补装完成");
+            appendLog(logFile, "[ssh] openssh-server fallback install complete");
         } catch (Exception e) {
-            appendLog(logFile, "[ssh] 安装失败（不影响 Web 服务）: " + e.getMessage());
+            appendLog(logFile, "[ssh] Install failed (does not affect Web service): " + e.getMessage());
         }
     }
 
@@ -357,7 +376,7 @@ public final class BootstrapInstaller {
             out.write((line + "\n").getBytes(java.nio.charset.StandardCharsets.UTF_8));
             out.close();
         } catch (Exception ignored) {
-            // 日志写不进就算了，不影响主流程
+            // If logs cannot be written, just ignore it, does not affect the main flow
         }
     }
 
@@ -368,11 +387,12 @@ public final class BootstrapInstaller {
         File resolv = new File(etc, "resolv.conf");
         String dns = "nameserver 223.5.5.5\nnameserver 8.8.8.8\n";
         Files.write(resolv.toPath(), dns.getBytes(StandardCharsets.UTF_8));
-        // apt 源（arm64 ports，中科大镜像），供安装 node-pty 编译工具链。
-        // 必须用 http 而非 https：全新 ubuntu-base rootfs 里还没有 CA 证书，
-        // https 握手直接失败（certificate is NOT trusted）→ 索引拉不到 →
-        // 连 ca-certificates 自己都装不上（鸡生蛋）。apt 完整性靠 InRelease
-        // 签名校验，http 是 Ubuntu 镜像的标准用法。
+
+        // apt sources (arm64 ports, USTC mirror), for installing node-pty compilation toolchain.
+        // Must use http instead of https: Brand new ubuntu-base rootfs does not have CA certificates yet,
+        // https handshake will directly fail (certificate is NOT trusted) -> cannot pull index ->
+        // cannot even install ca-certificates itself (chicken and egg problem). apt integrity relies on InRelease
+        // signature verification, http is the standard usage for Ubuntu mirrors.
         File sources = new File(etc, "apt");
         //noinspection ResultOfMethodCallIgnored
         sources.mkdirs();
@@ -380,16 +400,17 @@ public final class BootstrapInstaller {
                 + "deb http://mirrors.ustc.edu.cn/ubuntu-ports jammy-updates main restricted universe multiverse\n"
                 + "deb http://mirrors.ustc.edu.cn/ubuntu-ports jammy-security main restricted universe multiverse\n";
         Files.write(new File(sources, "sources.list").toPath(), list.getBytes(StandardCharsets.UTF_8));
+
         //noinspection ResultOfMethodCallIgnored
         new File(rootfs, "mnt/sd").mkdirs();
         //noinspection ResultOfMethodCallIgnored
         new File(rootfs, "mnt/shared").mkdirs();
         //noinspection ResultOfMethodCallIgnored
         new File(rootfs, "root").mkdirs();
-        log("已写入 resolv.conf、apt 源与挂载点");
+        log("Written resolv.conf, apt sources, and mount points");
     }
 
-    /** 在容器里执行命令，日志实时回调，并解析 npm 进度粗略推进百分比。 */
+    /** Execute command inside container, real-time log callback, and roughly advance percentage by parsing npm progress. */
     private void runInContainer(List<String> inner, int pStart, int pEnd) throws IOException, InterruptedException {
         File logFile = new File(ProotRunner.baseDir(ctx), "install.log");
         ProcessBuilder pb = new ProcessBuilder(ProotRunner.buildCommand(ctx, inner));
@@ -427,16 +448,16 @@ public final class BootstrapInstaller {
         }
         int code = p.waitFor();
         if (code != 0) {
-            throw new IOException("容器命令失败(" + code + "): " + inner);
+            throw new IOException("Container command failed (" + code + "): " + inner);
         }
     }
 
     /**
-     * 清理上次安装尝试残留的 apt-get/dpkg 进程。
-     * App 被杀时容器里的 apt-get/dpkg 会变孤儿继续运行（含其 proot 宿主进程，
-     * cmdline 里带 /usr/bin/apt-get 参数），长期持有 dpkg 锁。它们与 App 同 uid，
-     * 可通过 /proc 找到并直接 kill。仅在 apt 步骤开始前调用——此时本次运行
-     * 尚未启动任何 apt 进程，匹配到的必然是残留。
+     * Clean up residual apt-get/dpkg processes from the last installation attempt.
+     * When the App is killed, apt-get/dpkg in the container will become orphans and continue running (including their proot host processes,
+     * cmdline contains /usr/bin/apt-get parameters), holding the dpkg lock for a long time. They share the same uid with the App,
+     * can be found via /proc and killed directly. Only called before the apt step starts — at this time, the current run
+     * has not started any apt processes yet, so any matches must be residuals.
      */
     private void killStaleAptProcesses() {
         File[] entries = new File("/proc").listFiles();
@@ -449,7 +470,7 @@ public final class BootstrapInstaller {
             try {
                 pid = Integer.parseInt(entry.getName());
             } catch (NumberFormatException e) {
-                continue; // 非 PID 目录
+                continue; // Non-PID directory
             }
             if (pid == myPid) continue;
             try {
@@ -459,16 +480,16 @@ public final class BootstrapInstaller {
                 if (cmdline == null) continue;
                 if (cmdline.contains("apt-get") || cmdline.contains("/dpkg")
                         || cmdline.contains("unattended-upgrade")) {
-                    log("清理残留的包管理进程 (pid " + pid + ")");
+                    log("Cleaning residual package manager process (pid " + pid + ")");
                     android.os.Process.killProcess(pid);
                     killed = true;
                 }
             } catch (Exception ignored) {
-                // 进程刚好退出等情况，忽略
+                // Process just exited, etc., ignore
             }
         }
         if (killed) {
-            // 等进程退出、锁文件释放
+            // Wait for process to exit, lock file to release
             try {
                 Thread.sleep(800);
             } catch (InterruptedException e) {
@@ -477,7 +498,7 @@ public final class BootstrapInstaller {
         }
     }
 
-    /** 读 /proc 文本文件；cmdline 的 NUL 分隔符替换为空格。失败返回 null。 */
+    /** Read /proc text files; replace NUL separators in cmdline with spaces. Returns null on failure. */
     private static String readProcFile(File f) {
         try (InputStream in = new FileInputStream(f)) {
             return new String(readAll(in), StandardCharsets.UTF_8).replace('\0', ' ');
@@ -486,7 +507,7 @@ public final class BootstrapInstaller {
         }
     }
 
-    /** 从 /proc/PID/status 解析真实 uid（"Uid:\t10081\t..."），失败返回 -1。 */
+    /** Parse real uid from /proc/PID/status ("Uid:\t10081\t..."), returns -1 on failure. */
     private static int parseUid(String status) {
         for (String line : status.split("\n")) {
             if (line.startsWith("Uid:")) {
@@ -503,7 +524,7 @@ public final class BootstrapInstaller {
         return -1;
     }
 
-    // ---------- 下载 ----------
+    // ---------- Download ----------
 
     private void download(String url, File dest, int pStart, int pEnd) throws IOException {
         checkCancelled();
@@ -527,14 +548,14 @@ public final class BootstrapInstaller {
                             ? pStart + (int) ((pEnd - pStart) * done / total)
                             : pStart;
                     stage(null, Math.min(p, pEnd));
-                    log(String.format("已下载 %.1f MB", done / 1048576.0));
+                    log(String.format("Downloaded %.1f MB", done / 1048576.0));
                 }
             }
         } finally {
             conn.disconnect();
         }
         if (!tmp.renameTo(dest)) {
-            throw new IOException("无法写入 " + dest);
+            throw new IOException("Cannot write " + dest);
         }
     }
 
@@ -551,7 +572,7 @@ public final class BootstrapInstaller {
         return conn;
     }
 
-    private String fetchText(String url) throws IOException {
+    private static String fetchText(String url) throws IOException {
         HttpURLConnection conn = open(url);
         StringBuilder sb = new StringBuilder();
         try (InputStream in = conn.getInputStream()) {
@@ -565,26 +586,39 @@ public final class BootstrapInstaller {
         }
         return sb.toString();
     }
+    
+    private static HttpURLConnection open(String url) throws IOException {
+        HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
+        conn.setConnectTimeout(CONNECT_TIMEOUT);
+        conn.setReadTimeout(READ_TIMEOUT);
+        conn.setInstanceFollowRedirects(true);
+        conn.setRequestProperty("User-Agent", "dsh-mobile/1.0");
+        int code = conn.getResponseCode();
+        if (code >= 400) {
+            throw new IOException("HTTP " + code + ": " + url);
+        }
+        return conn;
+    }
 
-    /** 从 Termux 仓库列表解析最新的指定包 aarch64 deb。 */
-    private String resolveTermuxDeb(String pool, String prefix) throws IOException {
+    /** Parse the latest specified package aarch64 deb from the Termux repository list. */
+    static String resolveTermuxDeb(String pool, String prefix) throws IOException {
         String html = fetchText(pool);
-        // href 可能是相对文件名（packages.termux.dev）也可能是绝对路径
-        // （mirrors.ustc.edu.cn 的 fancyindex），统一取最后的文件名部分
-        Matcher m = Pattern.compile("href=\"(?:[^\"]*/)?(" + Pattern.quote(prefix) + "[^\"]+_aarch64\\.deb)\"")
+        // href might be a relative filename (packages.termux.dev) or an absolute path
+        // (fancyindex of mirrors.ustc.edu.cn), uniformly take the last filename part
+        Matcher m = Pattern.compile("href=\"(?:[^\"]/)?(" + Pattern.quote(prefix) + "[^\"]+_aarch64\\.deb)\"")
                 .matcher(html);
         String latest = null;
         while (m.find()) {
             latest = m.group(1);
         }
         if (latest == null) {
-            throw new IOException("未找到 " + prefix + " aarch64 包");
+            throw new IOException("Not found: " + prefix + " aarch64 package");
         }
         return pool + latest;
     }
 
-    /** 解析 Node v22 最新 linux-arm64 包地址。 */
-    private String resolveNodeUrl() throws IOException {
+    /** Parse the latest Node v22 linux-arm64 package address. */
+    static String resolveNodeUrl(Prefs prefs) throws IOException {
         String base = prefs.getNodeMirror();
         if (base.endsWith("/")) base = base.substring(0, base.length() - 1);
         String html = fetchText(base + "/" + NODE_SERIES + "/");
@@ -594,18 +628,17 @@ public final class BootstrapInstaller {
             latest = m.group(1);
         }
         if (latest == null) {
-            throw new IOException("未找到 Node linux-arm64 包");
+            throw new IOException("Node linux-arm64 package not found");
         }
         return base + "/" + NODE_SERIES + "/" + latest + "-linux-arm64.tar.xz";
     }
 
-    // ---------- 解包 ----------
+    // ---------- Unpack ----------
 
     /**
-     * 解压 tar(.gz/.xz)。
-     *
-     * @param gz       true 表示 gzip，false 表示 xz
-     * @param stripComps 剥掉的顶层目录层数
+     * Extract tar(.gz/.xz).
+     * @param gz       true for gzip, false for xz
+     * @param stripComps Number of top-level directory layers to strip
      */
     private void extractTar(File archive, File dest, boolean gz, int stripComps) throws IOException {
         InputStream fis = new BufferedInputStream(new FileInputStream(archive));
@@ -632,14 +665,14 @@ public final class BootstrapInstaller {
                     File parent = out.getParentFile();
                     //noinspection ResultOfMethodCallIgnored
                     parent.mkdirs();
-                    // 用相对路径文本文件无法保留符号链接语义，直接创建符号链接
+                    // Relative path text files cannot preserve symlink semantics, create symbolic link directly
                     //noinspection ResultOfMethodCallIgnored
                     out.delete();
                     try {
                         Files.createSymbolicLink(out.toPath(), new File(target).toPath());
                     } catch (Exception ex) {
-                        // 某些文件系统不支持符号链接时跳过（proot --link2symlink 兜底）
-                        log("跳过符号链接: " + rel);
+                        // Skip when certain file systems do not support symbolic links (proot --link2symlink fallback)
+                        log("Skipping symlink: " + rel);
                     }
                 } else if (e.isLink()) {
                     File parent = out.getParentFile();
@@ -651,7 +684,7 @@ public final class BootstrapInstaller {
                     try {
                         Files.createLink(out.toPath(), src.toPath());
                     } catch (Exception ex) {
-                        log("跳过硬链接: " + rel);
+                        log("Skipping hardlink: " + rel);
                     }
                 } else {
                     File parent = out.getParentFile();
@@ -674,7 +707,7 @@ public final class BootstrapInstaller {
         }
     }
 
-    /** deb = ar 包，取其中 data.tar.* 里的 bin/proot 与 libexec/proot/loader(32)。 */
+    /** deb = ar package, extract bin/proot and libexec/proot/loader(32) from data.tar.* inside. */
     private void extractProotFromDeb(File deb, File destDir) throws IOException {
         try (ArArchiveInputStream ar = new ArArchiveInputStream(
                 new BufferedInputStream(new FileInputStream(deb)))) {
@@ -690,7 +723,7 @@ public final class BootstrapInstaller {
                 }
             }
             if (dataTar == null) {
-                throw new IOException("deb 中未找到 data.tar");
+                throw new IOException("data.tar not found in deb");
             }
             InputStream cis = xz
                     ? new XZCompressorInputStream(new java.io.ByteArrayInputStream(dataTar))
@@ -721,12 +754,12 @@ public final class BootstrapInstaller {
                 }
             }
             if (found == 0) {
-                throw new IOException("deb 中未找到 proot 二进制");
+                throw new IOException("proot binary not found in deb");
             }
         }
     }
 
-    /** 从 deb 提取其中的 .so 库到 libDir（符号链接复制为实体文件）。 */
+    /** Extract .so libraries from deb to libDir (symbolic links copied as physical files). */
     private void extractLibsFromDeb(File deb, File libDir) throws IOException {
         java.util.Map<String, byte[]> files = new java.util.HashMap<>();
         java.util.Map<String, String> symlinks = new java.util.HashMap<>();
@@ -744,7 +777,7 @@ public final class BootstrapInstaller {
                 }
             }
             if (dataTar == null) {
-                throw new IOException("deb 中未找到 data.tar");
+                throw new IOException("data.tar not found in deb");
             }
             InputStream cis = xz
                     ? new XZCompressorInputStream(new java.io.ByteArrayInputStream(dataTar))
@@ -759,14 +792,14 @@ public final class BootstrapInstaller {
                         String tgt = te.getLinkName();
                         symlinks.put(base, tgt.substring(tgt.lastIndexOf('/') + 1));
                     } else if (!te.isDirectory()) {
-                        // TarArchiveInputStream 读到当前条目末尾即返回 -1
+                        // TarArchiveInputStream returns -1 when reading to the end of the current entry
                         files.put(base, readAll(tar));
                     }
                 }
             }
         }
         if (files.isEmpty()) {
-            throw new IOException("deb 中未找到 .so 库");
+            throw new IOException(".so libraries not found in deb");
         }
         for (java.util.Map.Entry<String, byte[]> en : files.entrySet()) {
             File out = new File(libDir, en.getKey());
@@ -774,7 +807,7 @@ public final class BootstrapInstaller {
                 fos.write(en.getValue());
             }
         }
-        // 符号链接（如 libtalloc.so.2 -> libtalloc.so.2.4.3）复制为实体文件
+        // Symbolic links (e.g., libtalloc.so.2 -> libtalloc.so.2.4.3) copied as physical files
         for (java.util.Map.Entry<String, String> en : symlinks.entrySet()) {
             byte[] target = files.get(en.getValue());
             if (target != null && !files.containsKey(en.getKey())) {
@@ -784,10 +817,10 @@ public final class BootstrapInstaller {
                 }
             }
         }
-        log("已提取库: " + files.keySet());
+        log("Extracted libraries: " + files.keySet());
     }
 
-    /** InputStream.readAllBytes 需要 API 33+，minSdk 26 用手动读。 */
+    /** InputStream.readAllBytes requires API 33+, use manual read for minSdk 26. */
     private static byte[] readAll(InputStream in) throws IOException {
         java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
         byte[] buf = new byte[64 * 1024];
@@ -799,15 +832,15 @@ public final class BootstrapInstaller {
     }
 
     /**
-     * 读取 64 位小端 ELF 程序头里的最大 p_align，用于判断二进制能否在
-     * 16KB 页内核（部分 Android 15/16 设备）上 exec。读不出返回 -1。
+     * Read the maximum p_align in the 64-bit little-endian ELF program header, used to determine if the binary can be
+     * executed on a 16KB page kernel (some Android 15/16 devices). Returns -1 if unreadable.
      */
     static long elfMaxAlign(File f) {
         try (java.io.RandomAccessFile raf = new java.io.RandomAccessFile(f, "r")) {
             byte[] ident = new byte[6];
             raf.readFully(ident);
             if (ident[0] != 0x7F || ident[1] != 'E' || ident[2] != 'L' || ident[3] != 'F'
-                    || ident[4] != 2 /* 64 位 */ || ident[5] != 1 /* 小端 */) {
+                    || ident[4] != 2 /* 64-bit */ || ident[5] != 1 /* little-endian */) {
                 return -1;
             }
             long phoff = readLeLong(raf, 0x20);
