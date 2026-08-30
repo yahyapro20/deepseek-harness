@@ -2,7 +2,7 @@ package com.dshmobile.app;
 
 import android.app.Activity;
 import android.app.AlertDialog;
-import android.content.ColorStateList;
+import android.content.res.ColorStateList;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
@@ -266,7 +266,7 @@ public class FileProvisionActivity extends Activity {
         b.setTextSize(13);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                 0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
-        lp.marginEnd = Ui.dp(this, 8);
+        lp.rightMargin = Ui.dp(this, 8);
         b.setOnClickListener(l);
         h.buttonRow.addView(b, lp);
     }
