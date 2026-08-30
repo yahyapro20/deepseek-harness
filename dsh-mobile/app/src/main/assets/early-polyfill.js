@@ -1,8 +1,8 @@
-/* 老 WebView 兼容 polyfill：必须在 dsh 自身脚本可能调用前注入
-   （onPageStarted）。只放无 DOM 依赖的最小补丁。
-   背景：Android 12 及以下常见系统 WebView（Chrome < 116）没有
-   AbortSignal.any/timeout，dsh 工作区选择器等会抛
-   "AbortSignal.any is not a function"（issue #2/#4）。 */
+/* Legacy WebView compatibility polyfill: must be injected before dsh's own scripts might call it
+   (onPageStarted). Only include minimal patches without DOM dependencies.
+   Background: Common system WebViews on Android 12 and below (Chrome < 116) lack
+   AbortSignal.any/timeout, causing dsh workspace selectors to throw
+   "AbortSignal.any is not a function" (issue #2/#4). */
 (function () {
   'use strict';
   if (window.__dshEarlyPolyfill) return;
@@ -32,7 +32,7 @@
     };
   }
 
-  // dsh bundle 用到的其它新 API（老 WebView 一调用就崩，issue #4 闪退的根源之一）
+  // Other new APIs used by the dsh bundle (old WebViews crash immediately upon calling them, one of the root causes of issue #4 crashes)
   if (typeof Promise.withResolvers !== 'function') {
     Promise.withResolvers = function () {
       var resolve, reject;
