@@ -34,6 +34,7 @@ import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -52,6 +53,7 @@ public final class FileProvisionActivity extends Activity {
     private final Map<FileAsset.Kind, CardHolder> holders = new EnumMap<>(FileAsset.Kind.class);
     private final Map<FileAsset.Kind, Long> remoteSizes = new ConcurrentHashMap<>();
     private final Map<FileAsset.Kind, List<ProvisionMirrors.Health>> mirrorHealth = new EnumMap<>(FileAsset.Kind.class);
+    private final Set<FileAsset.Kind> verifyingExisting = ConcurrentHashMap.newKeySet();
     private File dlDir;
     private LinearLayout content;
     private TextView overall, overallSub, storage, network;
@@ -61,7 +63,7 @@ public final class FileProvisionActivity extends Activity {
 
     private static final class CardHolder {
         LinearLayout card, actionRow;
-        TextView status, meta, speed;
+        TextView status, meta, speed, badge;
         ProgressBar progress;
     }
 
@@ -209,7 +211,7 @@ public final class FileProvisionActivity extends Activity {
         footer.setBackgroundColor(Ui.bg(this));
         Button start = primary("بررسی نهایی و شروع نصب  →");
         start.setTextSize(15);
-        start.setOnClickListener(v -> { if (allReady()) verifyAllThenStart(); });
+        start.setOnClickListener(v -> { if (allReady()) verifyAllThenStart(); else fastSetup(); });
         footer.addView(start);
         root.addView(footer);
         setContentView(root);
@@ -232,8 +234,8 @@ public final class FileProvisionActivity extends Activity {
         LinearLayout.LayoutParams np = new LinearLayout.LayoutParams(0, -2, 1);
         np.leftMargin = dp(11);
         head.addView(names, np);
-        TextView badge = pill("", Ui.textSecondary(this), Ui.bgSoft(this));
-        head.addView(badge);
+        h.badge = pill("", Ui.textSecondary(this), Ui.bgSoft(this));
+        head.addView(h.badge);
         h.card.addView(head);
 
         h.status = text("", 13, Ui.textSecondary(this), false);
@@ -280,7 +282,7 @@ public final class FileProvisionActivity extends Activity {
         }
         if(advanced){ add(h,"Mirror",v->mirrorDialog(a.kind)); add(h,"URL سفارشی",v->customUrlDialog(a.kind)); add(h,"چرا لازم است؟",v->whyDialog(a.kind)); }
         if(a.state==FileAsset.State.FOUND_IN_CACHE && s==ProvisionStore.Status.NOT_READY) { add(h,"استفاده از Cache",v->useCache(a)); }
-        if(h.card.getChildAt(0) instanceof LinearLayout) ((TextView)((LinearLayout)h.card.getChildAt(0)).getChildAt(1)).setText(badge);
+        h.badge.setText(badge);
         if(s!=ProvisionStore.Status.FAILED)h.status.setTextColor(Ui.textSecondary(this));
     }
 
@@ -297,8 +299,28 @@ public final class FileProvisionActivity extends Activity {
     }
 
     private void syncState(FileAsset a, ProvisionStore st){
-        if(a.destFile(dlDir).isFile() && st.status(a.kind)!=ProvisionStore.Status.READY){ProvisionVerifier.Result r=ProvisionVerifier.verify(a.kind,a.destFile(dlDir),st.sha256(a.kind));if(r.ok){st.sha256(a.kind,r.sha256);st.status(a.kind,ProvisionStore.Status.READY);}else{st.status(a.kind,ProvisionStore.Status.FAILED);st.error(a.kind,r.message);}}
-        if(st.status(a.kind)==ProvisionStore.Status.NOT_READY && a.state==FileAsset.State.FOUND_IN_CACHE)st.status(a.kind,ProvisionStore.Status.CACHE);
+        ProvisionStore.Status current = st.status(a.kind);
+        if(a.destFile(dlDir).isFile() && current != ProvisionStore.Status.READY && current != ProvisionStore.Status.VERIFYING){
+            if(verifyingExisting.add(a.kind)){
+                st.status(a.kind, ProvisionStore.Status.VERIFYING);
+                new Thread(() -> {
+                    ProvisionVerifier.Result r = ProvisionVerifier.verify(a.kind, a.destFile(dlDir), st.sha256(a.kind));
+                    handler.post(() -> {
+                        verifyingExisting.remove(a.kind);
+                        if(r.ok){
+                            st.sha256(a.kind, r.sha256);
+                            st.status(a.kind, ProvisionStore.Status.READY);
+                            st.error(a.kind, "");
+                        } else {
+                            st.status(a.kind, ProvisionStore.Status.FAILED);
+                            st.error(a.kind, r.message);
+                        }
+                        refreshAll(false);
+                    });
+                }, "dsh-existing-verify").start();
+            }
+        }
+        if(st.status(a.kind)==ProvisionStore.Status.NOT_READY && a.state==FileAsset.State.FOUND_IN_CACHE)st.status(a.kind, ProvisionStore.Status.CACHE);
     }
 
     private void refreshRemoteSizes(){new Thread(()->{for(FileAsset a:assets){try{ProvisionMirrors.Mirror m=ProvisionMirrors.byId(ProvisionStore.of(this).mirror(a.kind));String custom=ProvisionStore.of(this).customUrl(a.kind); String u=(custom==null||custom.isEmpty())?ProvisionMirrors.resolveUrl(a.kind,m,Prefs.of(this)):custom; long n=ProvisionMetadata.contentLength(u);if(n>0){remoteSizes.put(a.kind,n);handler.post(()->refreshAll(false));}}catch(Exception ignored){}}}).start();}
