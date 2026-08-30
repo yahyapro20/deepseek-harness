@@ -1,13 +1,13 @@
-/* dsh-mobile 注入脚本：处理 SPA 重渲染与软键盘。
-   幂等：重复执行不会叠加副作用。 */
+/* dsh-mobile injection script: handles SPA re-rendering and soft keyboard.
+   Idempotent: repeated execution will not stack side effects. */
 (function () {
   'use strict';
   if (window.__dshMobileInjected) return;
   window.__dshMobileInjected = true;
 
-  // 老 WebView（Chrome < 116，Android 12 及以下的系统 WebView 常见）
-  // 没有 AbortSignal.any/timeout，dsh 的工作区选择器等会直接抛
-  // "AbortSignal.any is not a function"（issue #2/#4）。补最小实现。
+  // Old WebViews (Chrome < 116, common in system WebViews on Android 12 and below)
+  // lack AbortSignal.any/timeout, causing dsh's workspace selectors to directly throw
+  // "AbortSignal.any is not a function" (issue #2/#4). Provide minimal implementation.
   if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.any !== 'function') {
     AbortSignal.any = function (signals) {
       var ctrl = new AbortController();
@@ -33,7 +33,7 @@
     };
   }
 
-  // SPA 路由切换 / 主题切换后确保 viewport 不被改回桌面宽度
+  // Ensure viewport is not reverted to desktop width after SPA route/theme changes
   function ensureViewport() {
     var v = document.querySelector('meta[name=viewport]');
     var want = 'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content';
@@ -42,11 +42,11 @@
     }
   }
 
-  // 详情面板（_detailsCol）三态门控：
-  //  - 有实质内容 → .dsh-mobile-open，全屏覆盖层
-  //  - 只有占位文案（"Click a tool row..."）→ .dsh-mobile-empty，整体隐藏。
-  //    否则它会在 grid 里常驻占掉大半宽度，把消息流挤成窄条、文本逐词换行，
-  //    卡片全被拉成一屏高——"看不到对话消息"的另一半根因。
+  // Details panel (_detailsCol) three-state gating:
+  //  - Has substantial content → .dsh-mobile-open, full-screen overlay
+  //  - Only placeholder text ("Click a tool row...") → .dsh-mobile-empty, completely hidden.
+  //    Otherwise it would permanently occupy most of the width in the grid, squeezing the message flow into a narrow strip, wrapping text word by word,
+  //    and stretching cards to full screen height—another root cause of "cannot see conversation messages".
   function updateDetailsCol() {
     var mobile = window.innerWidth <= 700;
     var cols = document.querySelectorAll('div[class*="_detailsCol"]');
@@ -61,30 +61,30 @@
     }
   }
 
-  // 统一找 dsh 侧栏开关：优先按类名片段（_toggle），aria-label 文案做兜底
-  // （dsh 更新或语言切换后 aria-label 可能变，类名更稳）。
+  // Uniformly find dsh sidebar toggle: prefer class name fragment (_toggle), with aria-label text as fallback
+  // (aria-label may change after dsh updates or language switches, class names are more stable).
   function findSidebarToggle() {
     return document.querySelector('div[class*="_sidebarCol"] button[class*="_toggle"]') ||
       document.querySelector('div[class*="_sidebarCol"] button[aria-label*="sidebar" i]') ||
       document.querySelector('div[class*="_sidebarCol"] button[class*="_iconButton"]');
   }
 
-  // dsh 侧栏的真实内部状态（收起时内层根节点带 _collapsed 类）。
-  // 绝不能看宽度（收起态被我们的 CSS display:none，宽度恒 0），
-  // 也不能看 body 的 dsh-mobile-drawer 类——那是我们派生的，有 300ms 防抖滞后，
-  // 据此二次翻转 toggle 会在真机慢渲染下把刚打开的瞬间又关掉（"按钮点不了"）。
+  // dsh sidebar's actual internal state (collapsed state has _collapsed class on inner root node).
+  // Must never check width (collapsed state is display:none via our CSS, width is always 0),
+  // nor check body's dsh-mobile-drawer class—that is derived by us, with a 300ms debounce lag,
+  // relying on it to flip toggle again would close the drawer immediately after opening on slow-rendering real devices ("button unresponsive").
   function sidebarIsOpen() {
     var col = document.querySelector('div[class*="_sidebarCol"]');
     if (!col) return false;
     return !col.querySelector('[class*="_collapsed"]');
   }
-  // 用户意图时间戳：主动打开（lastOpenIntent）取消正在进行的强制收起，
-  // 主动收起（lastCloseIntent）阻止打开的延迟补开——两路异步操作不再互相打架
-  // （旧行为：点会话行后的 6 秒强制收起窗内再点汉堡，抽屉被反复开了又关，
-  //  看着像"触控失灵/闪跳"）。
+  // User intent timestamps: active open (lastOpenIntent) cancels ongoing forced close,
+  // active close (lastCloseIntent) prevents delayed re-opening—two async operations no longer conflict
+  // (old behavior: clicking session row then hamburger within 6s forced close window caused drawer to open and close repeatedly,
+  //  looking like "touch failure/jumping").
   var lastOpenIntent = 0;
   var lastCloseIntent = 0;
-  // 仅在确认当前是收起态时才点 toggle 展开；展开失败（点击没生效）最多补一次。
+  // Only click toggle to expand when confirmed currently collapsed; retry at most once if expansion fails (click had no effect).
   function openSidebar(attemptsLeft) {
     lastOpenIntent = Date.now();
     if (sidebarIsOpen()) { updateSidebarDrawer(); return; }
@@ -92,11 +92,11 @@
     if (t) t.click();
     setTimeout(function () {
       updateSidebarDrawer();
-      // 700ms 内用户主动收过（点遮罩/选会话）就不再补开
+      // If user actively closed within 700ms (clicked mask/selected session), do not retry opening
       if (!sidebarIsOpen() && attemptsLeft > 0 && Date.now() - lastCloseIntent > 900) openSidebar(attemptsLeft - 1);
     }, 700);
   }
-  // 仅在确认当前是展开态时才点 toggle 收起。
+  // Only click toggle to collapse when confirmed currently expanded.
   function closeSidebar() {
     if (!sidebarIsOpen()) { updateSidebarDrawer(); return; }
     lastCloseIntent = Date.now();
@@ -104,10 +104,10 @@
     if (t) t.click();
     setTimeout(updateSidebarDrawer, 300);
   }
-  // 在时间窗内持续强制收起：dsh 导航后会按持久化状态把侧栏重新展开，
-  // 且展开可能发生在导航结束后 1~2 秒（真机更慢），点一次 toggle 可能白收。
-  // 窗内每 400ms 检查一次，只在确认展开态时才点 toggle（绝不盲翻）。
-  // 窗内用户主动打开（lastOpenIntent 晚于窗口起点）立即让路。
+  // Continuously enforce closing within time window: dsh re-expands sidebar based on persisted state after navigation,
+  // and expansion may occur 1-2 seconds after navigation ends (slower on real devices), clicking toggle once might be ineffective.
+  // Check every 400ms within window, only click toggle if confirmed expanded (never blindly flip).
+  // If user actively opens within window (lastOpenIntent later than window start), yield immediately.
   function enforceClosed(until, start) {
     if (start === undefined) start = Date.now();
     if (Date.now() > until) return;
@@ -116,7 +116,7 @@
     setTimeout(function () { enforceClosed(until, start); }, 400);
   }
 
-  // 左上角悬浮按钮：rail 不常驻，点它呼出侧栏抽屉（即触发 dsh 自带的 toggle）
+  // Top-left floating button: rail is not permanent, clicking it calls out sidebar drawer (i.e., triggers dsh's built-in toggle)
   var railBtn = null;
   function ensureRailBtn() {
     if (railBtn && railBtn.isConnected) return railBtn;
@@ -132,8 +132,8 @@
     return railBtn;
   }
 
-  // 侧栏抽屉化：手机上侧栏展开（宽度 >100px）时不应挤压会话区，
-  // 改为覆盖式抽屉 + 遮罩，点遮罩收起（点自带 toggle 按钮）。
+  // Sidebar drawerification: on mobile, when sidebar is expanded (width >100px), it should not squeeze session area,
+  // instead use overlay drawer + mask, click mask to close (click built-in toggle button).
   var maskEl = null;
   function ensureMask() {
     if (maskEl && maskEl.isConnected) return maskEl;
@@ -154,8 +154,8 @@
     var col = document.querySelector('div[class*="_sidebarCol"]');
     var open = false;
     if (col) {
-      // 收起态 sidebarCol 被我们的 CSS display:none（宽度 0），不能看宽度；
-      // dsh 收起时内层根节点带 _collapsed 类，以此为准。
+      // Collapsed state sidebarCol is display:none via our CSS (width 0), cannot check width;
+      // dsh adds _collapsed class to inner root node when collapsed, use this as standard.
       open = !col.querySelector('[class*="_collapsed"]');
     }
     document.body.classList.toggle('dsh-mobile-drawer', open);
@@ -163,11 +163,11 @@
     if (window.innerWidth <= 700) ensureRailBtn();
   }
 
-  // token/耗时统计条打标（类名是构建哈希，按文本识别）：
-  //  - 输入座汇总条："1 turns · 1 steps | LLM … | TTFT avg … tok/s"
-  //  - 消息内计时行："04:37 · Ran for 12s · TTFT 1s · 169 tok/s"（_timeEnd）
-  // 两种都是一行 nowrap，窄屏直接溢出屏幕右缘（右缘吊一截 "k/s"）。
-  // 段间的 "|" 分隔符一并打标——折行后行尾会吊着孤立的 "|"，很割裂，CSS 隐藏。
+  // Token/time statistics bar tagging (class names are build hashes, identify by text):
+  //  - Input seat summary bar: "1 turns · 1 steps | LLM … | TTFT avg … tok/s"
+  //  - Message timing line: "04:37 · Ran for 12s · TTFT 1s · 169 tok/s" (_timeEnd)
+  // Both are single-line nowrap, directly overflowing screen right edge on narrow screens (right edge hangs a bit of "k/s").
+  // "|" separators between segments are also tagged—after line break, isolated "|" hangs at line end, very disjointed, CSS hides them.
   function tagStatsBar() {
     var els = document.querySelectorAll('div, span');
     var cand = [];
@@ -181,8 +181,8 @@
       var msgStats = t.length < 80 && /Ran for|TTFT/.test(t) && /tok\/s/.test(t);
       if (composerStats || msgStats) cand.push(el);
     }
-    // 只打标最内层匹配者：外层容器（整条消息气泡）只是"包含"统计文本，
-    // 打标会让它内部所有 span 变 inline-block nowrap，破坏正文排版。
+    // Only tag innermost matchers: outer containers (entire message bubble) just "contain" stats text,
+    // tagging them makes all spans inside become inline-block nowrap, breaking body layout.
     for (var c = 0; c < cand.length; c++) {
       var innermost = true;
       for (var d = 0; d < cand.length; d++) {
@@ -201,14 +201,14 @@
     }
   }
 
-  // 弹层水平钳位：dsh 桌面定位的弹层（菜单/气泡，如模型选择器 right:0 对齐
-  // 触发器右缘）在手机窄屏会整层被裁出左右边缘。超界时改写 left/right 拉回屏内；
-  // dsh 重渲染会重置内联定位，下次超界再钳，不累积。
+  // Popover horizontal clamping: dsh desktop-positioned popovers (menus/bubbles, e.g., model selector right:0 aligned
+  // to trigger right edge) get clipped off left/right edges on mobile narrow screens. When out of bounds, rewrite left/right to pull back into screen;
+  // dsh re-rendering resets inline positioning, clamp again next time out of bounds, no accumulation.
   function clampPopovers() {
     if (window.innerWidth > 700) return;
     var vw = window.innerWidth;
-    // 注：_popover/_floating 类名在 rc.6/rc.7 DOM 中不存在（issue #5），
-    // tooltip 气泡用 [role="tooltip"] 匹配而非类名
+    // Note: _popover/_floating class names do not exist in rc.6/rc.7 DOM (issue #5),
+    // tooltip bubbles use [role="tooltip"] matching instead of class names
     var els = document.querySelectorAll(
       'div[class*="_menu"], div[class*="_dropdown"], [role="tooltip"]');
     for (var i = 0; i < els.length; i++) {
@@ -228,12 +228,12 @@
     }
   }
 
-  // Tooltip 自动消失：dsh 的 Tooltip 组件靠 mouseenter/focus 弹出、
-  // mouseleave/blur 才消失——触屏点按会合成 mouseenter/focus 把气泡弹出来，
-  // 但要再点一下别处才消失（Bash 行上黏住"命令"黑块、统计条弹出全文本
-  // 大黑框盖住输入区）。气泡允许弹出，但出现 2.5 秒后自动隐藏。
-  // 只加内联 display:none、不删 DOM 节点：节点由 React 在 anchor
-  // mouseleave/blur 时自行卸载，删节点会和 React 渲染脱同步。
+  // Tooltip auto-hide: dsh's Tooltip component pops up on mouseenter/focus,
+  // disappears on mouseleave/blur—touch tapping synthesizes mouseenter/focus to pop up bubble,
+  // but requires another tap elsewhere to disappear (sticks "command" black block on Bash line, stats bar pops up full-text
+  // large black box covering input area). Bubbles are allowed to pop up, but auto-hide after 2.5 seconds.
+  // Only add inline display:none, do not delete DOM nodes: nodes are unloaded by React on anchor
+  // mouseleave/blur, deleting nodes would desynchronize with React rendering.
   var TIP_AUTOHIDE_MS = 2500;
   function armTooltipAutohide() {
     var tips = document.querySelectorAll('[role="tooltip"]:not([data-dsh-tip-armed])');
@@ -248,24 +248,23 @@
     }
   }
 
-  // 消息流底部留白 = 输入座实际高度 + 16px 间隙。
-  // 背景：输入座由 mobile.css 钉成 fixed 贴视口底（脱离文档流），消息流
-  // 末尾需要等量留白才能滚到"最后一条消息在座上方"。
-  // 历史教训（勿回退）：
-  //  - 旧版把留白写成 scrollBody 的 padding-bottom：sticky 座的锚点会被
-  //    滚动容器自身 padding 上顶，padding 多大座浮多高；且测量用
-  //    sc.bottom - seat.top，seat.top 随 padding 移动 → 正反馈失控，
-  //    运行态座高度变化时 composer 一路漂到页面中部。
-  //  - inline 写 padding-bottom 不加 !important 会被 mobile.css 的
-  //    !important 兜底规则压掉，动态补偿形同虚设。
-  // 现方案：往 scrollBody 末尾追加独立间隔块（in-flow，高度稳定生效），
-  // 测量只取座"高度"（随内容变化，不随留白/定位变化），切断反馈回路。
-  // composer 汇总统计条（"N turns · N steps | LLM …"，tagStatsBar 打的
-  // .dsh-mobile-stats 且不在消息 _flowItem 里）在部分 dsh 版本里不在
-  // _composerSeat 内部，而是座下方文档流中的独立节点——座改 fixed 后它
-  // 会被座盖住或落到视口外（真机截图：统计行贴屏幕底边被裁一半）。
-  // 把它钉到视口最底（CSS .dsh-mobile-composer-stats），座的 bottom 上移
-  // 条高。返回条高（在座内/不存在时返回 0）。测量只取"高度"，稳定无反馈。
+  // Whitespace at bottom of message flow = actual height of input seat + 16px gap.
+  // Background: input seat is pinned to viewport bottom as fixed by mobile.css (out of document flow), message flow
+  // end needs equivalent whitespace to scroll to "last message above seat".
+  // Historical lessons (do not revert):
+  //  - Old version wrote whitespace as scrollBody's padding-bottom: sticky seat's anchor point gets pushed up by
+  //    scroll container's own padding, the larger the padding the higher the seat floats; and measurement uses
+  //    sc.bottom - seat.top, seat.top moves with padding → positive feedback loop out of control,
+  //    composer drifts to page middle when seat height changes during runtime.
+  //  - Inline writing of padding-bottom without !important gets overridden by mobile.css's
+  //    !important fallback rules, dynamic compensation becomes ineffective.
+  // Current solution: append independent spacer block to end of scrollBody (in-flow, height takes effect stably),
+  // measurement only takes seat "height" (changes with content, not with whitespace/positioning), cutting off feedback loop.
+  // Composer summary stats bar ("N turns · N steps | LLM …", tagged by tagStatsBar as
+  // .dsh-mobile-stats and not inside message _flowItem) in some dsh versions is not inside
+  // _composerSeat, but an independent node in document flow below seat—after seat becomes fixed, it
+  // gets covered by seat or falls outside viewport (real device screenshot: stats line sticks to screen bottom edge, half clipped).
+  // Pin it to viewport bottom (CSS .dsh-mobile-composer-stats), seat's bottom moves up by bar height. Return bar height (return 0 if inside seat/non-existent). Measurement only takes "height", stable without feedback.
   var pinnedStats = null;
   function pinComposerStats(comp) {
     var bar = null;
@@ -274,7 +273,7 @@
       var b = bars[i];
       if (comp.contains(b)) continue;
       if (b.closest('div[class*="_flowItem"]')) continue;
-      // 条根可能被重复打标（外层容器也是 .dsh-mobile-stats），取最外层
+      // Bar root may be repeatedly tagged (outer container is also .dsh-mobile-stats), take outermost
       while (b.parentElement && b.parentElement.classList &&
         b.parentElement.classList.contains('dsh-mobile-stats') &&
         !comp.contains(b.parentElement)) {
@@ -304,8 +303,8 @@
     var comp = document.querySelector('div[class*="_centerCol"] div[class*="_composerSeat"]');
     var sc = document.querySelector('div[class*="_centerCol"] [class*="_scrollBody"]');
     if (!comp || !sc) return;
-    // 新对话 hero 页的座留在文档流里（不贴底），不需要补偿；
-    // 从会话页导航过来时清掉旧间隔块/统计条钉住。
+    // Seat on new conversation hero page stays in document flow (not pinned to bottom), no compensation needed;
+    // Clear old spacer/pinned stats when navigating from session page.
     if (comp.querySelector('div[class*="_composerHero"]')) {
       if (spacerEl && spacerEl.isConnected) spacerEl.remove();
       if (pinnedStats) {
@@ -321,13 +320,13 @@
         spacerEl = document.createElement('div');
         spacerEl.id = 'dsh-mobile-composer-spacer';
         spacerEl.setAttribute('aria-hidden', 'true');
-        // scrollBody 是 flex 列，禁收缩（mobile.css 有同名规则，这里双保险）
+        // scrollBody is flex column, prevent shrinking (mobile.css has same rule, double insurance here)
         spacerEl.style.flex = '0 0 auto';
       }
       sc.appendChild(spacerEl);
     }
-    // dsh 重渲染可能往 scrollBody 末尾插新节点（如座外统计条），
-    // 间隔块必须保持最后一个孩子，否则新内容会落到间隔块下方被裁
+    // dsh re-rendering may insert new nodes at end of scrollBody (e.g., stats bar outside seat),
+    // spacer must remain last child, otherwise new content falls below spacer and gets clipped
     if (sc.lastElementChild !== spacerEl) sc.appendChild(spacerEl);
     var statsH = pinComposerStats(comp);
     var want = Math.max(48, Math.round(comp.getBoundingClientRect().height) + statsH + 16);
@@ -338,12 +337,12 @@
     }
   }
 
-  // 「打开配置文件」拦截：桌面版这个按钮调 settings.openDocument →
-  // 容器里没有 xdg-open/编辑器，必报"无法打开配置文件"。改走原生桥
-  // （DshNative.openConfig → ConfigEditorActivity 直接编辑容器里的
-  // settings.yaml，dsh-settings-file 的 watcher 会热加载，无需重启）。
-  // 捕获阶段拦截：React 17+ 的事件挂在根容器上，document 捕获阶段
-  // stopPropagation 能拦住原 handler。桥不存在（开发调试）时放行原逻辑。
+  // Intercept "Open configuration file": desktop version calls settings.openDocument →
+  // container lacks xdg-open/editor, inevitably reports "Cannot open configuration file". Switch to native bridge
+  // (DshNative.openConfig → ConfigEditorActivity directly edits settings.yaml in container,
+  // dsh-settings-file watcher hot-reloads, no restart needed).
+  // Capture phase interception: React 17+ events hang on root container, document capture phase
+  // stopPropagation can block original handler. Allow original logic if bridge does not exist (dev/debug).
   document.addEventListener('click', function (ev) {
     var t = ev.target;
     if (!t || !t.closest) return;
@@ -357,10 +356,10 @@
     window.DshNative.openConfig();
   }, true);
 
-  // 插件页「添加插件」：dsh web 只有插件配置/查看，没有安装入口
-  // （桌面安装走 CLI：dsh plugin --profile web add <pkg>，转发 pnpm）。
-  // 在插件 section 底部注入一行 输入框+按钮，经原生桥在容器里跑同一条 CLI。
-  // 结果通过 window.__dshOnPluginInstallResult 异步回传（安装要联网，可能几分钟）。
+  // Plugin page "Add plugin": dsh web only has plugin config/view, no installation entry
+  // (desktop installation goes through CLI: dsh plugin --profile web add <pkg>, forwards to pnpm).
+  // Inject input+button row at bottom of plugin section, run same CLI in container via native bridge.
+  // Result returned asynchronously via window.__dshOnPluginInstallResult (installation requires internet, may take minutes).
   function ensurePluginAdder() {
     if (!window.DshNative || !window.DshNative.installPlugin) return;
     var dlg = document.querySelector('div[role="dialog"], div[class*="_dialog"]');
@@ -380,31 +379,31 @@
     row.id = 'dsh-mobile-plugin-adder';
     var input = document.createElement('input');
     input.type = 'text';
-    input.placeholder = 'npm 包名，如 dsh-plugin-xxx';
+    input.placeholder = 'npm package name, e.g., dsh-plugin-xxx';
     input.setAttribute('autocapitalize', 'off');
     input.setAttribute('autocorrect', 'off');
     var btn = document.createElement('button');
     btn.type = 'button';
-    btn.textContent = '添加插件';
+    btn.textContent = 'Add plugin';
     var statusEl = document.createElement('div');
     statusEl.className = 'dsh-mobile-plugin-adder-status';
     btn.addEventListener('click', function () {
       var name = input.value.trim();
       if (!name) {
-        statusEl.textContent = '请输入插件包名';
+        statusEl.textContent = 'Please enter plugin package name';
         return;
       }
       btn.disabled = true;
       input.disabled = true;
-      statusEl.textContent = '安装中…（首次安装需联网下载 pnpm，可能要几分钟）';
+      statusEl.textContent = 'Installing… (first install requires downloading pnpm, may take a few minutes)';
       window.__dshOnPluginInstallResult = function (res) {
         btn.disabled = false;
         input.disabled = false;
         if (res && res.ok) {
-          statusEl.textContent = '已安装：' + name + '。到 App 设置页点「重启服务」后生效。';
+          statusEl.textContent = 'Installed: ' + name + '. Go to App Settings page and click "Restart Service" to take effect.';
           input.value = '';
         } else {
-          statusEl.textContent = '安装失败：\n' + ((res && res.output) || '未知错误').slice(-800);
+          statusEl.textContent = 'Installation failed:\n' + ((res && res.output) || 'Unknown error').slice(-800);
         }
       };
       try {
@@ -412,7 +411,7 @@
       } catch (e) {
         btn.disabled = false;
         input.disabled = false;
-        statusEl.textContent = '调用原生桥失败：' + e;
+        statusEl.textContent = 'Native bridge call failed: ' + e;
       }
     });
     row.appendChild(input);
@@ -448,19 +447,19 @@
   armTooltipAutohide();
   window.addEventListener('resize', updateSidebarDrawer);
 
-  // 抽屉里点了会话/工作区行（_sessionRow 等）后自动收起抽屉。
-  // dsh 桌面行为是选中不收起侧栏，手机上不收起就看不到会话内容。
-  // 6 秒窗口内持续强制收起：dsh 导航后可能按持久化状态把侧栏重新展开，
-  // 真机慢渲染时重展开可能拖到导航结束 2~3 秒后，点一次 toggle 容易白收。
-  // 不依赖 body 的 drawer 类（有防抖滞后），点在侧栏里就生效。
+  // Automatically close drawer after clicking session/workspace row (_sessionRow etc.) in drawer.
+  // dsh desktop behavior is to select without collapsing sidebar, on mobile not collapsing means session content is invisible.
+  // Continuously enforce closing within 6-second window: dsh may re-expand sidebar based on persisted state after navigation,
+  // re-expansion on slow-rendering real devices may drag to 2-3 seconds after navigation ends, clicking toggle once easily fails.
+  // Do not rely on body's drawer class (has debounce lag), effective when clicking inside sidebar.
   document.addEventListener('click', function (ev) {
     var t = ev.target;
     if (!t || !t.closest) return;
     var col = t.closest('div[class*="_sidebarCol"]');
     if (!col) return;
-    // 行内 ⋯ 按钮和弹出的菜单不是"选中行"：绝不能触发强制收起——
-    // 否则菜单刚打开抽屉就被收掉、菜单被卸载，归档/重命名永远点不中，
-    // 表现就是"点归档立即退回聊天界面但没归上"（issue #1）
+    // ⋯ button in row and popped-up menu are not "selecting row": must never trigger forced close—
+    // otherwise menu just opened, drawer gets closed, menu unmounted, archive/rename never clickable,
+    // manifestation is "click archive immediately returns to chat interface but not archived" (issue #1)
     if (t.closest('[class*="_rowActions"], [class*="_menu"], [role="menu"], [role="menuitem"], [role="dialog"]')) {
       return;
     }
@@ -469,11 +468,11 @@
     }
   }, true);
 
-  // 启动时若侧栏是持久化恢复的展开态，主动收掉——否则进 App 就是
-  // 抽屉+遮罩糊脸，整个界面像盖了层黑纱（所有点击都被遮罩拦掉）。
-  // 用户一旦主动开过抽屉就取消启动兜底，避免和用户抢。
-  // 注意必须用 closest：点击目标通常是按钮里的 <svg>/<line> 子节点，
-  // 直接比 id 会漏判，启动兜底照样把用户刚打开的抽屉收掉（"点了又自己关上"）。
+  // If sidebar is in persisted expanded state at startup, actively close it—otherwise entering App shows
+  // drawer+mask covering face, entire interface looks like covered with black gauze (all clicks blocked by mask).
+  // Once user actively opens drawer, cancel startup fallback to avoid competing with user.
+  // Note must use closest: click target is usually <svg>/<line> child node inside button,
+  // direct id comparison will miss, startup fallback still closes drawer user just opened ("clicked then closed itself").
   var startupEnforce = true;
   document.addEventListener('click', function (ev) {
     if (ev.target && ev.target.closest && ev.target.closest('#dsh-mobile-railbtn, #dsh-mobile-drawer-mask')) {
@@ -483,9 +482,9 @@
   setTimeout(function () { if (startupEnforce) enforceClosed(Date.now() + 1500); }, 1200);
   setTimeout(function () { if (startupEnforce) enforceClosed(Date.now() + 2500); }, 3500);
 
-  // 手势触发：屏幕左缘右滑呼出抽屉；抽屉打开时在抽屉/遮罩上左滑收起。
-  // 只在 touchend 判定（passive 监听，不打断页面滚动）：明确横向位移
-  // （|dx|>64 且 |dy|<=50）才触发，竖向滚动/斜滑不误触。
+  // Gesture trigger: swipe right from screen left edge to call out drawer; swipe left on drawer/mask to close when drawer is open.
+  // Only judge on touchend (passive listener, does not interrupt page scrolling): only trigger with clear horizontal displacement
+  // (|dx|>64 and |dy|<=50), vertical scrolling/diagonal swipe not mis-triggered.
   var drawerTouch = null;
   document.addEventListener('touchstart', function (ev) {
     drawerTouch = null;
@@ -512,11 +511,11 @@
     if (close && dx < -64) closeSidebar();
   }, { passive: true });
 
-  // 兜底自检：observer 只在有 DOM 变更时跑，若某次竞态后页面静止，
-  // 遮罩/抽屉状态可能卡住——每 2 秒按 dsh 真实状态校正一次派生类。
+  // Fallback self-check: observer only runs on DOM changes, if page is static after some race condition,
+  // mask/drawer state may get stuck—correct derived class every 2 seconds based on dsh's actual state.
   setInterval(function () { updateSidebarDrawer(); fitComposerOverlap(); }, 2000);
 
-  // 软键盘弹出时把聚焦的输入框滚进可视区
+  // Scroll focused input into visible area when soft keyboard pops up
   if (window.visualViewport) {
     window.visualViewport.addEventListener('resize', function () {
       var el = document.activeElement;
@@ -527,8 +526,7 @@
       }
     });
   }
-
-  // 注：不要在这里拦截 touchend 防双击缩放——viewport 已设 maximum-scale=1 +
-  // user-scalable=no，系统层面已禁双击缩放；额外 preventDefault 会吞掉快速连点的
-  // 第二次点击，导致按钮"点不了"。
+  // Note: Do not intercept touchend here to prevent double-tap zoom—viewport already set maximum-scale=1 +
+  // user-scalable=no, system level has disabled double-tap zoom; extra preventDefault will swallow second click
+  // of rapid consecutive taps, causing button "unresponsive".
 })();
