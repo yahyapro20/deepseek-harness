@@ -20,7 +20,7 @@ import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
 
-/** 设置：SD 映射、端口、镜像、日志、服务控制、重置。DeepSeek 风格。 */
+/** Settings: SD mapping, port, mirrors, logs, service control, reset. DeepSeek style. */
 public class SettingsActivity extends Activity {
 
     private Prefs prefs;
@@ -52,17 +52,17 @@ public class SettingsActivity extends Activity {
     }
 
     private void fillRows() {
-        TextView pageTitle = Ui.title(this, "设置");
+        TextView pageTitle = Ui.title(this, "Settings");
         LinearLayout.LayoutParams tlp = Ui.matchWrap();
         tlp.bottomMargin = Ui.dp(this, 4);
         list.addView(pageTitle, tlp);
 
-        // ---- SD 卡映射 ----
-        addHeader("SD 卡映射（容器 /mnt/sd）");
+        // ---- SD Card Mapping ----
+        addHeader("SD Card Mapping (container /mnt/sd)");
         LinearLayout sdCard = Ui.card(this);
         boolean allFiles = Environment.isExternalStorageManager();
-        addRow(sdCard, "所有文件访问权限",
-                allFiles ? "已授权 ✓" : "未授权 — 点这里去开启",
+        addRow(sdCard, "All Files Access Permission",
+                allFiles ? "Granted ✓" : "Not Granted — Tap here to enable",
                 v -> {
                     if (!Environment.isExternalStorageManager()) {
                         try {
@@ -75,34 +75,34 @@ public class SettingsActivity extends Activity {
                     }
                 });
         sdCard.addView(Ui.divider(this));
-        addRow(sdCard, "外置 SD 目录", sdDisplay(), v -> pickSdDir());
+        addRow(sdCard, "External SD Directory", sdDisplay(), v -> pickSdDir());
         sdCard.addView(Ui.divider(this));
-        addRow(sdCard, "共享存储兜底", "/sdcard/dsh-shared → /mnt/shared（自动创建）", null);
+        addRow(sdCard, "Shared Storage Fallback", "/sdcard/dsh-shared → /mnt/shared (auto-created)", null);
         list.addView(sdCard, cardLp());
 
-        // ---- 服务 ----
-        addHeader("服务");
+        // ---- Service ----
+        addHeader("Service");
         LinearLayout svcCard = Ui.card(this);
-        addRow(svcCard, "Web 端口", String.valueOf(prefs.getPort()),
-                v -> editText("Web 端口", String.valueOf(prefs.getPort()), t -> {
+        addRow(svcCard, "Web Port", String.valueOf(prefs.getPort()),
+                v -> editText("Web Port", String.valueOf(prefs.getPort()), t -> {
                     try {
                         int p = Integer.parseInt(t.trim());
                         if (p > 0 && p < 65536) {
                             prefs.setPort(p);
-                            toast("端口已保存，重启服务后生效");
+                            toast("Port saved, will take effect after service restart");
                             refresh();
                         }
                     } catch (NumberFormatException ignored) {
-                        toast("端口无效");
+                        toast("Invalid port");
                     }
                 }));
         svcCard.addView(Ui.divider(this));
-        addRow(svcCard, "服务状态", HarnessService.isRunning() ? "运行中" : "已停止", null);
+        addRow(svcCard, "Service Status", HarnessService.isRunning() ? "Running" : "Stopped", null);
         list.addView(svcCard, cardLp());
 
         LinearLayout btnRow = new LinearLayout(this);
         btnRow.setOrientation(LinearLayout.HORIZONTAL);
-        Button toggle = Ui.primaryButton(this, HarnessService.isRunning() ? "停止服务" : "启动服务");
+        Button toggle = Ui.primaryButton(this, HarnessService.isRunning() ? "Stop Service" : "Start Service");
         toggle.setOnClickListener(v -> {
             if (HarnessService.isRunning()) {
                 HarnessService.stopService(this);
@@ -113,11 +113,12 @@ public class SettingsActivity extends Activity {
         });
         LinearLayout.LayoutParams tbp = new LinearLayout.LayoutParams(0, Ui.dp(this, 48), 1);
         btnRow.addView(toggle, tbp);
-        Button restart = Ui.outlineButton(this, "重启服务");
+        Button restart = Ui.outlineButton(this, "Restart Service");
         restart.setOnClickListener(v -> {
             HarnessService.stopService(this);
-            // 停止在独立线程执行（强杀兜底最长 ~3s），等旧容器确实死掉再启动，
-            // 否则启动时 isRunning() 仍为 true，runLoop 不会被拉起，服务假死
+            // Stop executes on a separate thread (force kill fallback up to ~3s),
+            // wait for old container to actually die before starting again,
+            // otherwise isRunning() will still be true and runLoop won't start.
             list.postDelayed(() -> {
                 HarnessService.startService(this);
                 refresh();
@@ -130,46 +131,47 @@ public class SettingsActivity extends Activity {
         brlp.topMargin = Ui.dp(this, 12);
         list.addView(btnRow, brlp);
 
-        // ---- 容器 SSH ----
-        addHeader("容器 SSH（随服务自启）");
+        // ---- Container SSH ----
+        addHeader("Container SSH (auto-starts with service)");
         LinearLayout sshCard = Ui.card(this);
-        addRow(sshCard, "连接方式",
-                "本机终端/Termux：ssh dsh@127.0.0.1 -p " + prefs.getSshPort()
-                        + "（普通用户，PATH 已带 node/npm；root 同密码也可登）；电脑：adb forward tcp:"
+        addRow(sshCard, "Connection Method",
+                "Local terminal/Termux: ssh dsh@127.0.0.1 -p " + prefs.getSshPort()
+                        + " (regular user, PATH includes node/npm; root can also login with same password); PC: adb forward tcp:"
                         + prefs.getSshPort() + " tcp:" + prefs.getSshPort(),
                 null);
         sshCard.addView(Ui.divider(this));
-        addRow(sshCard, "用户名 / 密码", "dsh / " + prefs.getSshPassword() + "（点按复制密码）", v -> {
+        addRow(sshCard, "Username / Password", "dsh / " + prefs.getSshPassword() + " (tap to copy password)", v -> {
             android.content.ClipboardManager cm =
                     (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
             cm.setPrimaryClip(android.content.ClipData.newPlainText("ssh", prefs.getSshPassword()));
-            toast("密码已复制");
+            toast("Password copied");
         });
         sshCard.addView(Ui.divider(this));
-        addRow(sshCard, "SSH 端口", String.valueOf(prefs.getSshPort()) + "（若与本机 Termux 冲突可改）",
-                v -> editText("SSH 端口", String.valueOf(prefs.getSshPort()), t -> {
+        addRow(sshCard, "SSH Port", String.valueOf(prefs.getSshPort()) + " (change if conflicting with Termux)",
+                v -> editText("SSH Port", String.valueOf(prefs.getSshPort()), t -> {
                     try {
                         int p = Integer.parseInt(t.trim());
                         if (p > 0 && p < 65536) {
                             prefs.setSshPort(p);
-                            toast("SSH 端口已保存，重启服务后生效");
+                            toast("SSH port saved, will take effect after service restart");
                             refresh();
                         }
                     } catch (NumberFormatException ignored) {
-                        toast("端口无效");
+                        toast("Invalid port");
                     }
                 }));
         list.addView(sshCard, cardLp());
 
-        // ---- 后台保活 ----
-        // 划卡清任务被杀是 OEM 行为（荣耀/MagicOS 默认杀整进程），App 侧只能
-        // 尽量降低被杀概率：电池优化白名单 + 引导用户开「自启动/允许后台活动」。
-        addHeader("后台保活（防止划卡后服务被杀）");
+        // ---- Background Keep-alive ----
+        // Swiping away from recent tasks killing the service is OEM behavior (Honor/MagicOS
+        // kills the entire process by default). App side can only reduce kill probability:
+        // battery optimization whitelist + guide user to enable "auto-start / allow background activity".
+        addHeader("Background Keep-alive (prevent service from being killed)");
         LinearLayout keepCard = Ui.card(this);
         android.os.PowerManager pm = (android.os.PowerManager) getSystemService(POWER_SERVICE);
         boolean ignoring = pm != null && pm.isIgnoringBatteryOptimizations(getPackageName());
-        addRow(keepCard, "忽略电池优化",
-                ignoring ? "已加入白名单 ✓" : "未加入 — 点这里去开启",
+        addRow(keepCard, "Ignore Battery Optimization",
+                ignoring ? "Whitelisted ✓" : "Not whitelisted — Tap here to enable",
                 v -> {
                     android.os.PowerManager p = (android.os.PowerManager) getSystemService(POWER_SERVICE);
                     if (p != null && !p.isIgnoringBatteryOptimizations(getPackageName())) {
@@ -178,66 +180,66 @@ public class SettingsActivity extends Activity {
                             i.setData(Uri.parse("package:" + getPackageName()));
                             startActivity(i);
                         } catch (Exception e) {
-                            toast("无法打开电池优化设置");
+                            toast("Cannot open battery optimization settings");
                         }
                     }
                 });
         keepCard.addView(Ui.divider(this));
-        addRow(keepCard, "自启动 / 允许后台活动",
-                "荣耀等机型必须手动开启，点这里跳到应用详情：耗电详情/启动管理 → 允许自启动、允许后台活动",
+        addRow(keepCard, "Auto-start / Allow Background Activity",
+                "Honor and other devices require manual enable: tap to go to app details → battery details/startup management → allow auto-start and background activity",
                 v -> {
                     try {
                         Intent i = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
                         i.setData(Uri.parse("package:" + getPackageName()));
                         startActivity(i);
                     } catch (Exception e) {
-                        toast("无法打开应用详情页");
+                        toast("Cannot open app details page");
                     }
                 });
         list.addView(keepCard, cardLp());
 
-        // ---- 镜像 ----
-        addHeader("下载镜像（下次安装生效）");
+        // ---- Mirrors ----
+        addHeader("Download Mirrors (take effect on next install)");
         LinearLayout mirrorCard = Ui.card(this);
-        addRow(mirrorCard, "rootfs 地址", prefs.getRootfsUrl(),
-                v -> editText("rootfs 地址", prefs.getRootfsUrl(), t -> {
+        addRow(mirrorCard, "rootfs URL", prefs.getRootfsUrl(),
+                v -> editText("rootfs URL", prefs.getRootfsUrl(), t -> {
                     prefs.setRootfsUrl(t.trim());
                     refresh();
                 }));
         mirrorCard.addView(Ui.divider(this));
-        addRow(mirrorCard, "Node.js 镜像", prefs.getNodeMirror(),
-                v -> editText("Node.js 镜像", prefs.getNodeMirror(), t -> {
+        addRow(mirrorCard, "Node.js Mirror", prefs.getNodeMirror(),
+                v -> editText("Node.js Mirror", prefs.getNodeMirror(), t -> {
                     prefs.setNodeMirror(t.trim());
                     refresh();
                 }));
         mirrorCard.addView(Ui.divider(this));
-        addRow(mirrorCard, "npm registry", prefs.getNpmRegistry(),
-                v -> editText("npm registry", prefs.getNpmRegistry(), t -> {
+        addRow(mirrorCard, "npm Registry", prefs.getNpmRegistry(),
+                v -> editText("npm Registry", prefs.getNpmRegistry(), t -> {
                     prefs.setNpmRegistry(t.trim());
                     refresh();
                 }));
         list.addView(mirrorCard, cardLp());
 
-        // ---- 维护 ----
-        addHeader("维护");
-        Button fmBtn = Ui.outlineButton(this, "文件管理器（传入/导出）");
+        // ---- Maintenance ----
+        addHeader("Maintenance");
+        Button fmBtn = Ui.outlineButton(this, "File Manager (import/export)");
         fmBtn.setOnClickListener(v -> startActivity(new Intent(this, FileManagerActivity.class)));
         list.addView(fmBtn, btnLp());
-        Button termBtn = Ui.outlineButton(this, "打开容器终端");
+        Button termBtn = Ui.outlineButton(this, "Open Container Terminal");
         termBtn.setOnClickListener(v -> startActivity(new Intent(this, TerminalActivity.class)));
         list.addView(termBtn, btnLp());
-        Button logBtn = Ui.outlineButton(this, "查看运行日志");
+        Button logBtn = Ui.outlineButton(this, "View Runtime Log");
         logBtn.setOnClickListener(v -> showLog("dsh-web.log"));
         list.addView(logBtn, btnLp());
-        Button installLogBtn = Ui.outlineButton(this, "查看安装日志");
+        Button installLogBtn = Ui.outlineButton(this, "View Installation Log");
         installLogBtn.setOnClickListener(v -> showLog("install.log"));
         list.addView(installLogBtn, btnLp());
-        Button resetBtn = Ui.outlineButton(this, "重置容器（删除全部数据）");
+        Button resetBtn = Ui.outlineButton(this, "Reset Container (delete all data)");
         resetBtn.setTextColor(0xFFE54545);
         resetBtn.setOnClickListener(v -> new AlertDialog.Builder(this)
-                .setTitle("重置容器")
-                .setMessage("将删除 Ubuntu 容器及其中全部数据，下次启动重新安装。确定？")
-                .setPositiveButton("重置", (d, w) -> {
+                .setTitle("Reset Container")
+                .setMessage("This will delete the Ubuntu container and all data inside. Re-installation will occur on next launch. Proceed?")
+                .setPositiveButton("Reset", (d, w) -> {
                     HarnessService.stopService(this);
                     new Thread(() -> {
                         BootstrapInstaller.deleteRecursively(ProotRunner.baseDir(this));
@@ -248,24 +250,24 @@ public class SettingsActivity extends Activity {
                         });
                     }).start();
                 })
-                .setNegativeButton("取消", null)
+                .setNegativeButton("Cancel", null)
                 .show());
         list.addView(resetBtn, btnLp());
     }
 
     private String sdDisplay() {
         String sd = prefs.getSdPath();
-        if (sd == null) return "未设置（仅使用 /mnt/shared 兜底）";
-        return sd + (new File(sd).isDirectory() ? "" : "  （路径不存在！）");
+        if (sd == null) return "Not set (only using /mnt/shared fallback)";
+        return sd + (new File(sd).isDirectory() ? "" : "  (Path does not exist!)");
     }
 
     private void pickSdDir() {
         if (!Environment.isExternalStorageManager()) {
-            toast("请先开启「所有文件访问权限」");
+            toast("Please enable \"All Files Access Permission\" first");
             return;
         }
         List<String> options = new ArrayList<>();
-        options.add("不映射（仅 /mnt/shared）");
+        options.add("No mapping (only /mnt/shared)");
         File[] vols = new File("/storage").listFiles();
         if (vols != null) {
             for (File v : vols) {
@@ -274,10 +276,10 @@ public class SettingsActivity extends Activity {
                 }
             }
         }
-        options.add("手动输入路径…");
+        options.add("Manual input path…");
         String[] items = options.toArray(new String[0]);
         new AlertDialog.Builder(this)
-                .setTitle("选择外置 SD 目录")
+                .setTitle("Select External SD Directory")
                 .setItems(items, (d, which) -> {
                     String sel = items[which];
                     if (which == 0) {
@@ -288,10 +290,10 @@ public class SettingsActivity extends Activity {
                         //noinspection ResultOfMethodCallIgnored
                         new File(dir).mkdirs();
                         prefs.setSdPath(dir);
-                        toast("已映射 " + dir + " → /mnt/sd，重启服务生效");
+                        toast("Mapped " + dir + " → /mnt/sd, will take effect after service restart");
                         refresh();
                     } else {
-                        editText("SD 目录完整路径",
+                        editText("SD Directory Full Path",
                                 prefs.getSdPath() == null ? "" : prefs.getSdPath(),
                                 t -> {
                                     prefs.setSdPath(t.trim());
@@ -311,10 +313,10 @@ public class SettingsActivity extends Activity {
                 int from = Math.max(0, all.length - 60_000);
                 sb.append(new String(all, from, all.length - from));
             } catch (Exception e) {
-                sb.append("读取失败: ").append(e.getMessage());
+                sb.append("Read failed: ").append(e.getMessage());
             }
         } else {
-            sb.append("（暂无日志）");
+            sb.append("(No logs yet)");
         }
         TextView tv = new TextView(this);
         tv.setText(sb.toString());
@@ -328,7 +330,7 @@ public class SettingsActivity extends Activity {
         new AlertDialog.Builder(this)
                 .setTitle(name)
                 .setView(sv)
-                .setPositiveButton("关闭", null)
+                .setPositiveButton("Close", null)
                 .show();
     }
 
@@ -341,8 +343,8 @@ public class SettingsActivity extends Activity {
         new AlertDialog.Builder(this)
                 .setTitle(title)
                 .setView(et)
-                .setPositiveButton("保存", (d, w) -> cb.accept(et.getText().toString()))
-                .setNegativeButton("取消", null)
+                .setPositiveButton("Save", (d, w) -> cb.accept(et.getText().toString()))
+                .setNegativeButton("Cancel", null)
                 .show();
     }
 
