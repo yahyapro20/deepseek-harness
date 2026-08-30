@@ -9,6 +9,7 @@ import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -58,38 +59,38 @@ public final class BootstrapPack {
         try (InputStream raw = resolver.openInputStream(source)) {
             if (raw == null) return new Result(false, "فایل قابل خواندن نیست", 0);
             try (ZipInputStream zip = new ZipInputStream(raw)) {
-                ZipEntry e; String manifest = null;
-                while ((e = zip.getNextEntry()) != null) {
-                    if (e.isDirectory()) continue;
-                    if (MANIFEST.equals(e.getName())) { manifest = readText(zip); }
-                    else {
-                        FileAsset a = findByName(assets, e.getName());
-                        if (a != null) {
-                            File f = new File(temp, e.getName());
-                            try (OutputStream out = new FileOutputStream(f)) { copy(zip, out); }
-                            extracted.put(a.kind.id, f);
-                        }
+            ZipEntry e; String manifest = null;
+            while ((e = zip.getNextEntry()) != null) {
+                if (e.isDirectory()) continue;
+                if (MANIFEST.equals(e.getName())) { manifest = readText(zip); }
+                else {
+                    FileAsset a = findByName(assets, e.getName());
+                    if (a != null) {
+                        File f = new File(temp, e.getName());
+                        try (OutputStream out = new FileOutputStream(f)) { copy(zip, out); }
+                        extracted.put(a.kind.id, f);
                     }
-                    zip.closeEntry();
                 }
-                if (manifest == null || !manifest.startsWith(FORMAT)) return new Result(false, "این فایل یک Bootstrap Pack معتبر نیست", 0);
-                int count = 0;
-                String[] lines = manifest.split("\\n");
-                for (String line : lines) {
-                    if (!line.contains("|")) continue;
-                    String[] p = line.trim().split("\\|"); if (p.length != 4) continue;
-                    FileAsset a = findById(assets, p[0]); File f = extracted.get(p[0]);
-                    if (a == null || f == null) continue;
-                    long size = Long.parseLong(p[2]);
-                    if (f.length() != size) throw new IllegalStateException(a.kind.displayName + ": اندازه فایل با manifest یکی نیست");
-                    ProvisionVerifier.Result vr = ProvisionVerifier.verify(a.kind, f, p[3]);
-                    if (!vr.ok) throw new IllegalStateException(a.kind.displayName + ": " + vr.message);
-                    File dest = a.destFile(dlDir);
-                    if (!f.renameTo(dest)) {
-                        java.nio.file.Files.move(f.toPath(), dest.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
-                    }
-                    count++;
+                zip.closeEntry();
+            }
+            if (manifest == null || !manifest.startsWith(FORMAT)) return new Result(false, "این فایل یک Bootstrap Pack معتبر نیست", 0);
+            int count = 0;
+            String[] lines = manifest.split("\\n");
+            for (String line : lines) {
+                if (!line.contains("|")) continue;
+                String[] p = line.trim().split("\\|"); if (p.length != 4) continue;
+                FileAsset a = findById(assets, p[0]); File f = extracted.get(p[0]);
+                if (a == null || f == null) continue;
+                long size = Long.parseLong(p[2]);
+                if (f.length() != size) throw new IllegalStateException(a.kind.displayName + ": اندازه فایل با manifest یکی نیست");
+                ProvisionVerifier.Result vr = ProvisionVerifier.verify(a.kind, f, p[3]);
+                if (!vr.ok) throw new IllegalStateException(a.kind.displayName + ": " + vr.message);
+                File dest = a.destFile(dlDir);
+                if (!f.renameTo(dest)) {
+                    java.nio.file.Files.move(f.toPath(), dest.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
                 }
+                count++;
+            }
                 delete(temp);
                 return new Result(true, "Bootstrap Pack با موفقیت بررسی و وارد شد", count);
             }
