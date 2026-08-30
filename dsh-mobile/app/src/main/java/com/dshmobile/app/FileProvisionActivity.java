@@ -16,6 +16,7 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import java.io.IOException;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
@@ -378,41 +379,52 @@ public class FileProvisionActivity extends Activity {
     private void startDownload(FileAsset a) {
         a.state = FileAsset.State.DOWNLOADING;
         renderCardState(a);
-        String url = resolveUrl(a);
-        ResumableDownloader d = new ResumableDownloader();
-        activeDownloaders.put(a.kind, d);
-        new Thread(() -> d.start(url, a.partFile(dlDir), a.destFile(dlDir), new ResumableDownloader.Listener() {
-            @Override
-            public void onProgress(long downloadedBytes, long totalBytes) {
-                handler.post(() -> {
-                    a.downloadedBytes = downloadedBytes;
-                    a.totalBytes = totalBytes;
-                    if (a.state == FileAsset.State.DOWNLOADING) {
-                        holders.get(a.kind).progressBar.setProgress(a.progressPercent());
-                        holders.get(a.kind).statusText.setText("در حال دانلود… " + a.progressPercent() + "%");
-                    }
-                });
-            }
-
-            @Override
-            public void onError(Exception e) {
+        new Thread(() -> {
+            String url;
+            try {
+                url = resolveUrl(a);
+            } catch (IOException e) {
                 handler.post(() -> {
                     a.state = FileAsset.State.PAUSED_ERROR;
-                    a.lastError = e.getMessage();
+                    a.lastError = "Download address not found: " + e.getMessage();
                     renderCardState(a);
                 });
+                return;
             }
+            ResumableDownloader d = new ResumableDownloader();
+            activeDownloaders.put(a.kind, d);
+            d.start(url, a.partFile(dlDir), a.destFile(dlDir), new ResumableDownloader.Listener() {
+                @Override
+                public void onProgress(long downloadedBytes, long totalBytes) {
+                    handler.post(() -> {
+                        a.downloadedBytes = downloadedBytes;
+                        a.totalBytes = totalBytes;
+                        if (a.state == FileAsset.State.DOWNLOADING) {
+                            holders.get(a.kind).progressBar.setProgress(a.progressPercent());
+                            holders.get(a.kind).statusText.setText("در حال دانلود… " + a.progressPercent() + "%");
+                        }
+                    });
+                }
 
-            @Override
-            public void onComplete() {
-                handler.post(() -> {
-                    a.state = FileAsset.State.READY_DOWNLOADED;
-                    renderCardState(a);
-                });
-            }
-        }), "download-" + a.kind.id).start();
+                @Override
+                public void onError(Exception e) {
+                    handler.post(() -> {
+                        a.state = FileAsset.State.PAUSED_ERROR;
+                        a.lastError = e.getMessage();
+                        renderCardState(a);
+                    });
+                }
+
+                @Override
+                public void onComplete() {
+                    handler.post(() -> {
+                        a.state = FileAsset.State.READY_DOWNLOADED;
+                        renderCardState(a);
+                    });
+                }
+            });
+        }, "download-" + a.kind.id).start();
     }
-
     private void pauseDownload(FileAsset a) {
         ResumableDownloader d = activeDownloaders.get(a.kind);
         if (d != null) d.cancel();
@@ -421,20 +433,24 @@ public class FileProvisionActivity extends Activity {
         renderCardState(a);
     }
 
-    private String resolveUrl(FileAsset a) {
+        private String resolveUrl(FileAsset a) throws IOException {
         if (a.customUrl != null && !a.customUrl.isEmpty()) return a.customUrl;
         Prefs p = Prefs.of(this);
         switch (a.kind) {
             case ROOTFS:
                 return p.getRootfsUrl();
             case NODE:
-                return p.getNodeMirror() + "/latest-v22.x/"; // آدرس دقیق داخل BootstrapInstaller.resolveNodeUrl حل می‌شود
+                return BootstrapInstaller.resolveNodeUrl(p);
+            case PROOT:
+                return BootstrapInstaller.resolveTermuxDeb(BootstrapInstaller.PROOT_POOL, "proot_");
+            case LIBTALLOC:
+                return BootstrapInstaller.resolveTermuxDeb(BootstrapInstaller.LIBTALLOC_POOL, "libtalloc_");
+            case LIBSHMEM:
+                return BootstrapInstaller.resolveTermuxDeb(BootstrapInstaller.LIBANDROID_SHMEM_POOL, "libandroid-shmem_");
             default:
-                // proot / libtalloc / libshmem از pool ترموکس حل می‌شوند (resolveTermuxDeb)؛
-                // برای این‌ها معمولاً فقط «آدرس سفارشی مستقیم به فایل .deb» معنی دارد.
-                return p.getRootfsUrl(); // TODO: در ادغام واقعی، از BootstrapInstaller متد resolve متناظر را صدا بزنید
+                throw new IOException("Unknown file type");
         }
-    }
+        }
 
     private void promptCustomUrl(FileAsset a) {
         EditText input = new EditText(this);
