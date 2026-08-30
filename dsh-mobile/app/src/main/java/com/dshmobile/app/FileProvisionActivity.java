@@ -2,16 +2,24 @@ package com.dshmobile.app;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.content.BroadcastReceiver;
+import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.graphics.Color;
 import android.graphics.Typeface;
+import android.graphics.drawable.GradientDrawable;
+import android.net.ConnectivityManager;
+import android.net.NetworkInfo;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
 import android.view.Gravity;
 import android.view.View;
+import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
@@ -21,52 +29,80 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
-import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.EnumMap;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.zip.ZipEntry;
-import java.util.zip.ZipInputStream;
-import java.util.zip.ZipOutputStream;
+import java.util.concurrent.ConcurrentHashMap;
 
-/** Modern bootstrap/provisioning screen. Native Views only; no AndroidX/Kotlin. */
-public class FileProvisionActivity extends Activity {
+/**
+ * Bootstrap setup center. Native Java Views only; intentionally independent from AndroidX/Compose.
+ * The Activity is a UI/controller only. Long-running downloads live in BootstrapDownloadService.
+ */
+public final class FileProvisionActivity extends Activity {
+    public static final String ACTION_STATE_CHANGED = "com.dshmobile.app.PROVISION_STATE_CHANGED";
+    public static final String EXTRA_KIND = "kind";
     private static final int REQ_PICK_BASE = 100;
-    private static final int REQ_IMPORT_PACK = 900;
+    private static final int REQ_IMPORT_PACK = 700;
+    private static final int REQ_EXPORT_PACK = 701;
+
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final List<FileAsset> assets = new ArrayList<>();
     private final Map<FileAsset.Kind, CardHolder> holders = new EnumMap<>(FileAsset.Kind.class);
-    private final Map<FileAsset.Kind, ResumableDownloader> active = new EnumMap<>(FileAsset.Kind.class);
-    private File dlDir, cacheDir;
-    private LinearLayout list, footer;
-    private TextView overall, storage;
+    private final Map<FileAsset.Kind, Long> remoteSizes = new ConcurrentHashMap<>();
+    private final Map<FileAsset.Kind, List<ProvisionMirrors.Health>> mirrorHealth = new EnumMap<>(FileAsset.Kind.class);
+    private File dlDir;
+    private LinearLayout content;
+    private TextView overall, overallSub, storage, network;
+    private Button mainAction, pauseResume;
+    private boolean advanced;
 
     private static final class CardHolder {
-        LinearLayout card, actions;
-        TextView status, meta;
+        LinearLayout card, actionRow;
+        TextView status, meta, speed;
         ProgressBar progress;
     }
+
+    private final BroadcastReceiver receiver = new BroadcastReceiver() {
+        @Override public void onReceive(Context context, Intent intent) {
+            if (ACTION_STATE_CHANGED.equals(intent.getAction())) refreshAll(false);
+        }
+    };
 
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
         dlDir = new File(ProotRunner.baseDir(this), "dl"); dlDir.mkdirs();
-        File downloads = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
-        cacheDir = new File(new File(downloads, "dsh-shared"), "bootstrap-cache");
+        loadAssets();
+        if (assets.isEmpty()) { startSetup(); return; }
+        buildUi();
+        refreshAll(true);
+        refreshRemoteSizes();
+    }
+
+    @Override protected void onStart() {
+        super.onStart();
+        IntentFilter f = new IntentFilter(ACTION_STATE_CHANGED);
+        if (Build.VERSION.SDK_INT >= 33) registerReceiver(receiver, f, Context.RECEIVER_NOT_EXPORTED);
+        else registerReceiver(receiver, f);
+        refreshAll(false);
+    }
+
+    @Override protected void onStop() { try { unregisterReceiver(receiver); } catch (Exception ignored) {} super.onStop(); }
+
+    private void loadAssets() {
         for (FileAsset.Kind k : FileAsset.Kind.values()) {
             if (alreadyExtracted(k)) continue;
             FileAsset a = new FileAsset(k);
-            if (a.destFile(dlDir).isFile()) a.state = FileAsset.State.READY_DOWNLOADED;
-            else if (a.cacheFile(cacheDir).isFile()) a.state = FileAsset.State.FOUND_IN_CACHE;
+            File dest = a.destFile(dlDir);
+            if (dest.isFile()) a.state = FileAsset.State.READY_DOWNLOADED;
+            else if (a.partFile(dlDir).isFile()) a.state = FileAsset.State.PAUSED_ERROR;
+            else {
+                File cache = a.cacheFile(new File(new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "dsh-shared"), "bootstrap-cache"));
+                if (cache.isFile()) a.state = FileAsset.State.FOUND_IN_CACHE;
+            }
             assets.add(a);
         }
-        if (assets.isEmpty()) { startActivity(new Intent(this, SetupActivity.class)); finish(); return; }
-        buildUi();
     }
 
     private boolean alreadyExtracted(FileAsset.Kind k) {
@@ -81,124 +117,152 @@ public class FileProvisionActivity extends Activity {
         }
     }
 
-    private TextView tv(String s, float size, int color, boolean bold) {
-        TextView v = new TextView(this); v.setText(s); v.setTextSize(size); v.setTextColor(color);
-        if (bold) v.setTypeface(Typeface.DEFAULT, Typeface.BOLD); return v;
-    }
-    private LinearLayout box(int bg, int pad) {
-        LinearLayout v = new LinearLayout(this); v.setOrientation(LinearLayout.VERTICAL);
-        v.setBackgroundColor(bg); v.setPadding(dp(pad), dp(pad), dp(pad), dp(pad)); return v;
-    }
-    private int dp(int n) { return Ui.dp(this, n); }
-
     private void buildUi() {
         LinearLayout root = new LinearLayout(this); root.setOrientation(LinearLayout.VERTICAL); root.setBackgroundColor(Ui.bgSoft(this));
         ScrollView scroll = new ScrollView(this); scroll.setFillViewport(true);
-        list = new LinearLayout(this); list.setOrientation(LinearLayout.VERTICAL); list.setPadding(dp(18), dp(18), dp(18), dp(18));
+        content = new LinearLayout(this); content.setOrientation(LinearLayout.VERTICAL); int pad=dp(18); content.setPadding(pad,pad,pad,pad);
 
-        LinearLayout hero = box(Ui.bg(this), 18);
-        TextView brand = tv("DeepSeek Harness", 13, Ui.PRIMARY, true); hero.addView(brand);
-        hero.addView(tv("آماده‌سازی محیط اجرا", 27, Ui.text(this), true), lp(0, 6));
-        hero.addView(tv("فایل‌های لازم را آماده می‌کنیم تا محیط Ubuntu و Harness روی گوشی اجرا شود.", 14, Ui.textSecondary(this), false), lp(0, 5));
-        LinearLayout summary = new LinearLayout(this); summary.setGravity(Gravity.CENTER_VERTICAL); summary.setPadding(0, dp(16), 0, 0);
-        overall = tv("در حال بررسی…", 14, Ui.text(this), true); summary.addView(overall, new LinearLayout.LayoutParams(0, -2, 1));
-        Button advanced = ghost("پیشرفته"); advanced.setOnClickListener(v -> showAdvanced()); summary.addView(advanced, new LinearLayout.LayoutParams(-2, -2)); hero.addView(summary);
-        list.addView(hero, lp(0, 0));
+        LinearLayout hero = panel();
+        TextView eyebrow = text("DEEPSEEK HARNESS", 12, Ui.PRIMARY, true); hero.addView(eyebrow);
+        hero.addView(text("محیط اجرا را آماده کنیم", 27, Ui.text(this), true), margin(6));
+        hero.addView(text("Ubuntu 22.04، proot، کتابخانه‌های لازم و Node.js روی همین گوشی آماده می‌شوند.",14,Ui.textSecondary(this),false),margin(6));
 
-        LinearLayout actions = box(Ui.bg(this), 14);
-        Button all = primary("دانلود همه"); all.setOnClickListener(v -> downloadAll()); actions.addView(all, lp(0, 0));
-        Button importPack = ghost("وارد کردن Bootstrap Pack"); importPack.setOnClickListener(v -> importPack()); actions.addView(importPack, lp(0, 8));
-        Button exportPack = ghost("ساخت Bootstrap Pack از فایل‌های آماده"); exportPack.setOnClickListener(v -> exportPack()); actions.addView(exportPack, lp(0, 8));
-        list.addView(actions, lp(0, 12));
+        LinearLayout summary = new LinearLayout(this); summary.setGravity(Gravity.CENTER_VERTICAL); summary.setPadding(0,dp(18),0,0);
+        LinearLayout summaryText = new LinearLayout(this); summaryText.setOrientation(LinearLayout.VERTICAL);
+        overall=text("در حال بررسی…",16,Ui.text(this),true); summaryText.addView(overall);
+        overallSub=text("",12,Ui.textSecondary(this),false); summaryText.addView(overallSub,margin(3));
+        summary.addView(summaryText,new LinearLayout.LayoutParams(0,-2,1));
+        TextView check=text("✓",26,Ui.PRIMARY,true); summary.addView(check);
+        hero.addView(summary);
+        content.addView(hero);
 
-        storage = tv("فضای موردنیاز در حال محاسبه…", 13, Ui.textSecondary(this), false);
-        list.addView(storage, lp(0, 12));
-        list.addView(tv("اجزای محیط", 16, Ui.text(this), true), lp(0, 20));
-        for (FileAsset a : assets) list.addView(buildCard(a), lp(0, 10));
-        scroll.addView(list);
-        root.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
+        LinearLayout controls=panel();
+        mainAction=primary("آماده‌سازی سریع"); mainAction.setOnClickListener(v->fastSetup()); controls.addView(mainAction);
+        pauseResume=outline("توقف همه"); pauseResume.setOnClickListener(v->togglePause()); controls.addView(pauseResume,margin(8));
+        LinearLayout tools=new LinearLayout(this); tools.setGravity(Gravity.CENTER_VERTICAL);
+        Button advancedBtn=outline("حالت پیشرفته"); advancedBtn.setOnClickListener(v->{advanced=!advanced; advancedBtn.setText(advanced?"حالت سریع":"حالت پیشرفته"); refreshAll(false);});
+        tools.addView(advancedBtn,new LinearLayout.LayoutParams(0,-2,1));
+        Button pack=outline("Bootstrap Pack"); pack.setOnClickListener(v->packDialog()); tools.addView(pack,new LinearLayout.LayoutParams(0,-2,1));
+        controls.addView(tools,margin(8));
+        content.addView(controls,margin(12));
 
-        footer = new LinearLayout(this); footer.setOrientation(LinearLayout.VERTICAL); footer.setPadding(dp(16), dp(10), dp(16), dp(16)); footer.setBackgroundColor(Ui.bg(this));
-        Button start = primary("شروع نصب"); start.setOnClickListener(v -> { if (allReady()) { startActivity(new Intent(this, SetupActivity.class)); finish(); } });
-        footer.addView(start); root.addView(footer, lp(0, 0));
-        setContentView(root); refreshSummary();
+        LinearLayout readiness=panel();
+        readiness.addView(text("وضعیت دستگاه",14,Ui.text(this),true));
+        network=text("اتصال: در حال بررسی…",12,Ui.textSecondary(this),false); readiness.addView(network,margin(6));
+        storage=text("فضای موردنیاز: در حال محاسبه…",12,Ui.textSecondary(this),false); readiness.addView(storage,margin(3));
+        content.addView(readiness,margin(12));
+
+        content.addView(text("اجزای محیط",17,Ui.text(this),true),margin(22));
+        for(FileAsset a:assets) content.addView(buildCard(a),margin(10));
+        scroll.addView(content,new ScrollView.LayoutParams(-1,-2)); root.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
+
+        LinearLayout footer=new LinearLayout(this); footer.setOrientation(LinearLayout.VERTICAL); footer.setPadding(dp(16),dp(10),dp(16),dp(16)); footer.setBackgroundColor(Ui.bg(this));
+        Button start=primary("شروع نصب"); start.setOnClickListener(v->{if(allReady())verifyAllThenStart();}); footer.addView(start); root.addView(footer);
+        setContentView(root);
     }
 
-    private LinearLayout.LayoutParams lp(int top, int ignored) { LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, -2); p.topMargin = dp(top); return p; }
-    private Button primary(String s) { Button b = Ui.primaryButton(this, s); return b; }
-    private Button ghost(String s) { Button b = Ui.outlineButton(this, s); b.setTextSize(13); return b; }
-
     private LinearLayout buildCard(FileAsset a) {
-        LinearLayout c = box(Ui.bg(this), 15); CardHolder h = new CardHolder(); h.card = c; holders.put(a.kind, h);
-        LinearLayout head = new LinearLayout(this); head.setGravity(Gravity.CENTER_VERTICAL);
-        head.addView(tv(a.kind.displayName, 16, Ui.text(this), true), new LinearLayout.LayoutParams(0, -2, 1));
-        TextView badge = tv("", 12, Ui.PRIMARY, true); head.addView(badge); c.addView(head);
-        c.addView(tv(a.kind.purpose, 13, Ui.textSecondary(this), false), lp(7, 0));
-        h.status = tv("", 13, Ui.textSecondary(this), false); c.addView(h.status, lp(10, 0));
-        h.meta = tv("", 12, Ui.textSecondary(this), false); c.addView(h.meta, lp(4, 0));
-        h.progress = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal); h.progress.setMax(100); h.progress.setVisibility(View.GONE); c.addView(h.progress, lp(9, 0));
-        h.actions = new LinearLayout(this); h.actions.setOrientation(LinearLayout.HORIZONTAL); c.addView(h.actions, lp(10, 0));
-        render(a); return c;
+        CardHolder h=new CardHolder(); h.card=panel(); holders.put(a.kind,h);
+        LinearLayout head=new LinearLayout(this); head.setGravity(Gravity.CENTER_VERTICAL);
+        TextView name=text(a.kind.displayName,16,Ui.text(this),true); head.addView(name,new LinearLayout.LayoutParams(0,-2,1));
+        TextView badge=text("",11,Ui.PRIMARY,true); head.addView(badge); h.card.addView(head);
+        h.card.addView(text(a.kind.purpose,12,Ui.textSecondary(this),false),margin(6));
+        h.status=text("",13,Ui.textSecondary(this),false); h.card.addView(h.status,margin(10));
+        h.meta=text("",12,Ui.textSecondary(this),false); h.card.addView(h.meta,margin(4));
+        h.progress=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal); h.progress.setMax(100); h.progress.setVisibility(View.GONE); h.card.addView(h.progress,margin(9));
+        h.speed=text("",12,Ui.textSecondary(this),false); h.card.addView(h.speed,margin(4));
+        h.actionRow=new LinearLayout(this); h.actionRow.setOrientation(LinearLayout.HORIZONTAL); h.card.addView(h.actionRow,margin(9));
+        render(a); return h.card;
     }
 
     private void render(FileAsset a) {
-        CardHolder h = holders.get(a.kind); if (h == null) return; h.actions.removeAllViews(); h.progress.setVisibility(View.GONE);
-        String badge = "";
-        switch (a.state) {
-            case NOT_READY: h.status.setText("نیاز به فایل دارد"); add(h, "دانلود", v -> startDownload(a)); add(h, "انتخاب فایل", v -> pickLocal(a)); break;
-            case FOUND_IN_CACHE: h.status.setText("نسخه آماده در Cache پیدا شد"); add(h, "استفاده", v -> useCached(a)); add(h, "دانلود جدید", v -> startDownload(a)); badge="CACHE"; break;
-            case DOWNLOADING: h.status.setText("در حال دانلود  •  " + a.progressPercent() + "%"); h.progress.setVisibility(View.VISIBLE); h.progress.setProgress(a.progressPercent()); add(h, "توقف", v -> pause(a)); badge="DOWNLOADING"; break;
-            case PAUSED_ERROR: h.status.setText("متوقف شد  •  " + safe(a.lastError)); h.progress.setVisibility(View.VISIBLE); h.progress.setProgress(a.progressPercent()); add(h, "ادامه", v -> startDownload(a)); add(h, "آدرس سفارشی", v -> customUrl(a)); break;
-            case READY_LOCAL: h.status.setText("فایل محلی آماده است ✓"); add(h, "تغییر فایل", v -> pickLocal(a)); badge="READY"; break;
-            case READY_DOWNLOADED: h.status.setText("دانلود کامل و آماده بررسی است ✓"); add(h, "Verify", v -> verify(a)); add(h, "دوباره", v -> { a.destFile(dlDir).delete(); a.state=FileAsset.State.NOT_READY; render(a); refreshSummary(); }); badge="READY"; break;
-            case FAILED: h.status.setText("خطا  •  " + safe(a.lastError)); add(h, "تلاش مجدد", v -> startDownload(a)); add(h, "انتخاب فایل", v -> pickLocal(a)); badge="ERROR"; break;
+        CardHolder h=holders.get(a.kind); if(h==null)return;
+        ProvisionStore st=ProvisionStore.of(this); ProvisionStore.Status s=st.status(a.kind);
+        if(a.destFile(dlDir).isFile() && s!=ProvisionStore.Status.READY) { a.state=FileAsset.State.READY_DOWNLOADED; }
+        h.actionRow.removeAllViews(); h.progress.setVisibility(View.GONE); h.speed.setText("");
+        String badge="";
+        long total=st.total(a.kind); long done=st.downloaded(a.kind); long speed=st.speed(a.kind); long eta=st.eta(a.kind);
+        if(total<=0) total=remoteSizes.containsKey(a.kind)?remoteSizes.get(a.kind):0;
+        if(a.destFile(dlDir).isFile()) { total=a.destFile(dlDir).length(); done=total; }
+        h.meta.setText(total>0?"حجم واقعی: "+formatBytes(total):"حجم واقعی: در حال شناسایی…");
+
+        switch(s) {
+            case DOWNLOADING: badge="در حال دانلود"; h.status.setText("دانلود در حال انجام است"); h.progress.setVisibility(View.VISIBLE); h.progress.setProgress(total>0?(int)Math.min(100,done*100/total):0); h.speed.setText(formatBytes(speed)+"/s"+(eta>0?"  •  "+formatEta(eta)+" باقی مانده":"")); add(h,"توقف",v->stopKind(a.kind)); break;
+            case PAUSED: badge="مکث"; h.status.setText(st.error(a.kind).isEmpty()?"متوقف شده؛ ادامه از همان نقطه ممکن است":st.error(a.kind)); if(done>0){h.progress.setVisibility(View.VISIBLE);h.progress.setProgress(total>0?(int)Math.min(100,done*100/total):0);} add(h,"ادامه",v->startKinds(a.kind)); add(h,"Mirror",v->mirrorDialog(a.kind)); break;
+            case VERIFYING: badge="بررسی"; h.status.setText("در حال بررسی سلامت فایل…"); break;
+            case READY: badge="آماده ✓"; h.status.setText("فایل سالم و آماده نصب است"); add(h,"Verify دوباره",v->verify(a)); if(advanced)add(h,"دانلود مجدد",v->redownload(a)); break;
+            case FAILED: badge="نیاز به اقدام"; h.status.setText(st.error(a.kind).isEmpty()?"فایل خراب یا دانلود ناموفق است":st.error(a.kind)); h.status.setTextColor(Color.rgb(210,55,55)); add(h,"دانلود مجدد",v->redownload(a)); add(h,"Mirror",v->mirrorDialog(a.kind)); break;
+            case CACHE: badge="Cache"; h.status.setText("یک نسخه از قبل روی گوشی پیدا شد"); add(h,"استفاده از Cache",v->useCache(a)); add(h,"دانلود تازه",v->redownload(a)); break;
+            case QUEUED: badge="در صف"; h.status.setText("در صف دانلود پس‌زمینه"); break;
+            default: badge="نیاز دارد"; h.status.setText("این فایل برای اجرای محیط لازم است"); add(h,"دانلود",v->startKinds(a.kind)); add(h,"انتخاب فایل",v->pickLocal(a));
         }
-        h.status.setTextColor(a.state == FileAsset.State.FAILED ? Color.rgb(210,50,50) : Ui.textSecondary(this));
-        h.meta.setText(meta(a));
-        ((TextView)((LinearLayout)h.card.getChildAt(0)).getChildAt(1)).setText(badge);
+        if(advanced){ add(h,"Mirror",v->mirrorDialog(a.kind)); add(h,"URL سفارشی",v->customUrlDialog(a.kind)); add(h,"چرا لازم است؟",v->whyDialog(a.kind)); }
+        if(a.state==FileAsset.State.FOUND_IN_CACHE && s==ProvisionStore.Status.NOT_READY) { add(h,"استفاده از Cache",v->useCache(a)); }
+        if(h.card.getChildAt(0) instanceof LinearLayout) ((TextView)((LinearLayout)h.card.getChildAt(0)).getChildAt(1)).setText(badge);
+        if(s!=ProvisionStore.Status.FAILED)h.status.setTextColor(Ui.textSecondary(this));
     }
 
-    private String meta(FileAsset a) { long n = a.totalBytes > 0 ? a.totalBytes : (a.destFile(dlDir).isFile() ? a.destFile(dlDir).length() : 0); return n > 0 ? format(n) : "حجم: در حال شناسایی…"; }
-    private String format(long n) { if (n >= 1073741824L) return String.format(java.util.Locale.US, "حجم: %.2f GB", n/1073741824.0); return String.format(java.util.Locale.US, "حجم: %.1f MB", n/1048576.0); }
-    private String safe(String s) { return s == null ? "خطای ناشناخته" : s; }
-    private void add(CardHolder h, String s, View.OnClickListener l) { Button b=ghost(s); LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,-2,1); p.rightMargin=dp(7); b.setOnClickListener(l); h.actions.addView(b,p); }
-
-    private void refreshSummary() {
-        int ready=0; long bytes=0;
-        for(FileAsset a:assets){ if(a.isReady())ready++; long n=a.totalBytes; if(n<=0 && a.destFile(dlDir).isFile())n=a.destFile(dlDir).length(); bytes+=Math.max(0,n); }
-        overall.setText(ready+" از "+assets.size()+" جزء آماده  •  "+(ready==assets.size()?"آماده نصب":"نیاز به آماده‌سازی"));
-        storage.setText(bytes>0?"حجم شناخته‌شده: "+format(bytes)+"  •  فضای اضافی برای استخراج و نصب نیز لازم است":"فضای موردنیاز: در حال شناسایی اندازه فایل‌ها");
-        if(footer!=null && footer.getChildCount()>0){ Button b=(Button)footer.getChildAt(0); b.setEnabled(allReady()); b.setAlpha(allReady()?1f:.45f); }
+    private void refreshAll(boolean initial){
+        if(isFinishing())return; ProvisionStore st=ProvisionStore.of(this); int ready=0; int active=0; long download=0;
+        for(FileAsset a:assets){syncState(a,st); if(st.status(a.kind)==ProvisionStore.Status.READY)ready++; if(st.status(a.kind)==ProvisionStore.Status.DOWNLOADING||st.status(a.kind)==ProvisionStore.Status.QUEUED)active++; if(st.status(a.kind)!=ProvisionStore.Status.READY){long n=st.total(a.kind);if(n<=0)n=remoteSizes.containsKey(a.kind)?remoteSizes.get(a.kind):0;download+=Math.max(0,n-st.downloaded(a.kind));} render(a);}
+        overall.setText(ready+" از "+assets.size()+" جزء آماده است"); overallSub.setText(active>0?active+" مورد در حال آماده‌سازی در پس‌زمینه":"همه وضعیت‌ها آماده نمایش هستند");
+        boolean readyAll=ready==assets.size(); mainAction.setText(readyAll?"ادامه و شروع نصب":"آماده‌سازی سریع"); mainAction.setOnClickListener(v->{if(readyAll)verifyAllThenStart();else fastSetup();});
+        pauseResume.setText(active>0?"توقف همه":"ادامه همه");
+        boolean net=hasNetwork(); network.setText(net?"✓ اتصال اینترنت برقرار است":"⚠ اینترنت قطع است؛ دانلودها بعد از اتصال دوباره ادامه می‌یابند"); network.setTextColor(net?Ui.textSecondary(this):Color.rgb(210,110,40));
+        long free=dlDir.getUsableSpace(); long installExtra=estimateInstallExtra(); storage.setText("دانلود باقی‌مانده: "+formatBytes(download)+"  •  فضای آزاد: "+formatBytes(free)+"  •  فضای امن پیشنهادی: "+formatBytes(download+installExtra));
     }
-    private boolean allReady(){for(FileAsset a:assets)if(!a.isReady())return false;return true;}
 
-    private void downloadAll(){ for(FileAsset a:assets) if(!a.isReady() && a.state!=FileAsset.State.DOWNLOADING) startDownload(a); }
-    private void pauseAll(){ for(FileAsset a:assets) pause(a); }
-    private void pause(FileAsset a){ ResumableDownloader d=active.get(a.kind); if(d!=null)d.cancel(); a.state=FileAsset.State.PAUSED_ERROR; a.lastError="توقف توسط کاربر؛ ادامه از همان نقطه ممکن است"; render(a); refreshSummary(); }
+    private void syncState(FileAsset a, ProvisionStore st){
+        if(a.destFile(dlDir).isFile() && st.status(a.kind)!=ProvisionStore.Status.READY){ProvisionVerifier.Result r=ProvisionVerifier.verify(a.kind,a.destFile(dlDir),st.sha256(a.kind));if(r.ok){st.sha256(a.kind,r.sha256);st.status(a.kind,ProvisionStore.Status.READY);}else{st.status(a.kind,ProvisionStore.Status.FAILED);st.error(a.kind,r.message);}}
+        if(st.status(a.kind)==ProvisionStore.Status.NOT_READY && a.state==FileAsset.State.FOUND_IN_CACHE)st.status(a.kind,ProvisionStore.Status.CACHE);
+    }
 
-    private void startDownload(FileAsset a){ a.state=FileAsset.State.DOWNLOADING; render(a); new Thread(()->{
-        try{ String url=resolveUrl(a); ResumableDownloader d=new ResumableDownloader(); active.put(a.kind,d); d.start(url,a.partFile(dlDir),a.destFile(dlDir),new ResumableDownloader.Listener(){
-            public void onProgress(long done,long total){handler.post(()->{a.downloadedBytes=done;a.totalBytes=total;if(a.state==FileAsset.State.DOWNLOADING)render(a);refreshSummary();});}
-            public void onError(Exception e){handler.post(()->{a.state=FileAsset.State.PAUSED_ERROR;a.lastError=e.getMessage();render(a);refreshSummary();});}
-            public void onComplete(){handler.post(()->{a.state=FileAsset.State.READY_DOWNLOADED;render(a);refreshSummary();});}
-        }); }catch(Exception e){handler.post(()->{a.state=FileAsset.State.PAUSED_ERROR;a.lastError=e.getMessage();render(a);refreshSummary();});}
-    },"download-"+a.kind.id).start(); }
+    private void refreshRemoteSizes(){new Thread(()->{for(FileAsset a:assets){try{ProvisionMirrors.Mirror m=ProvisionMirrors.byId(ProvisionStore.of(this).mirror(a.kind));String custom=ProvisionStore.of(this).customUrl(a.kind); String u=(custom==null||custom.isEmpty())?ProvisionMirrors.resolveUrl(a.kind,m,Prefs.of(this)):custom; long n=ProvisionMetadata.contentLength(u);if(n>0){remoteSizes.put(a.kind,n);handler.post(()->refreshAll(false));}}catch(Exception ignored){}}}).start();}
 
-    private String resolveUrl(FileAsset a)throws IOException{ if(a.customUrl!=null&&!a.customUrl.isEmpty())return a.customUrl; Prefs p=Prefs.of(this); switch(a.kind){case ROOTFS:return p.getRootfsUrl();case NODE:return BootstrapInstaller.resolveNodeUrl(p);case PROOT:return BootstrapInstaller.resolveTermuxDeb(BootstrapInstaller.PROOT_POOL,"proot_");case LIBTALLOC:return BootstrapInstaller.resolveTermuxDeb(BootstrapInstaller.LIBTALLOC_POOL,"libtalloc_");case LIBSHMEM:return BootstrapInstaller.resolveTermuxDeb(BootstrapInstaller.LIBANDROID_SHMEM_POOL,"libandroid-shmem_");default:throw new IOException("نوع فایل ناشناخته");} }
+    private void fastSetup(){List<FileAsset.Kind> q=new ArrayList<>();ProvisionStore st=ProvisionStore.of(this);for(FileAsset a:assets)if(st.status(a.kind)!=ProvisionStore.Status.READY)q.add(a.kind);if(q.isEmpty()){verifyAllThenStart();return;}startKinds(q.toArray(new FileAsset.Kind[0]));}
+    private void startKinds(FileAsset.Kind... kinds){ProvisionStore st=ProvisionStore.of(this);StringBuilder q=new StringBuilder(st.queue());for(FileAsset.Kind k:kinds){if(q.indexOf(k.id)<0){if(q.length()>0)q.append(',');q.append(k.id);}st.status(k,ProvisionStore.Status.QUEUED);}st.setQueue(q.toString());Intent i=new Intent(this,BootstrapDownloadService.class);i.setAction(BootstrapDownloadService.ACTION_START);i.putExtra(BootstrapDownloadService.EXTRA_KINDS,q.toString());if(Build.VERSION.SDK_INT>=26)startForegroundService(i);else startService(i);refreshAll(false);}
+    private void stopKind(FileAsset.Kind k){ProvisionStore st=ProvisionStore.of(this);st.status(k,ProvisionStore.Status.PAUSED);Intent i=new Intent(this,BootstrapDownloadService.class);i.setAction(BootstrapDownloadService.ACTION_PAUSE_ONE);i.putExtra(BootstrapDownloadService.EXTRA_KINDS,k.id);if(Build.VERSION.SDK_INT>=26)startService(i);else startService(i);refreshAll(false);}
+    private void togglePause(){ProvisionStore st=ProvisionStore.of(this);boolean active=false;for(FileAsset a:assets){ProvisionStore.Status s=st.status(a.kind);if(s==ProvisionStore.Status.DOWNLOADING||s==ProvisionStore.Status.QUEUED){active=true;break;}}if(active){for(FileAsset a:assets){ProvisionStore.Status s=st.status(a.kind);if(s==ProvisionStore.Status.DOWNLOADING||s==ProvisionStore.Status.QUEUED)st.status(a.kind,ProvisionStore.Status.PAUSED);}Intent i=new Intent(this,BootstrapDownloadService.class);i.setAction(BootstrapDownloadService.ACTION_PAUSE);startService(i);}else{fastSetup();}refreshAll(false);}
+
+    private void verify(FileAsset a){ProvisionStore st=ProvisionStore.of(this);st.status(a.kind,ProvisionStore.Status.VERIFYING);render(a);new Thread(()->{ProvisionVerifier.Result r=ProvisionVerifier.verify(a.kind,a.destFile(dlDir),st.sha256(a.kind));handler.post(()->{if(r.ok){st.sha256(a.kind,r.sha256);st.status(a.kind,ProvisionStore.Status.READY);Toast.makeText(this,"فایل سالم است ✓",Toast.LENGTH_SHORT).show();}else{st.status(a.kind,ProvisionStore.Status.FAILED);st.error(a.kind,r.message);new AlertDialog.Builder(this).setTitle("فایل معتبر نیست").setMessage(r.message+"\n\nپیشنهاد: دانلود مجدد از یک Mirror سالم.").setPositiveButton("دانلود مجدد",(d,w)->redownload(a)).setNegativeButton("بعداً",null).show();}refreshAll(false);});}).start();}
+    private void redownload(FileAsset a){a.destFile(dlDir).delete();a.partFile(dlDir).delete();ProvisionStore.of(this).reset(a.kind);startKinds(a.kind);}
+    private void useCache(FileAsset a){File cache=new File(new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),"dsh-shared"),"bootstrap-cache");File src=a.cacheFile(cache);new Thread(()->{try{java.nio.file.Files.copy(src.toPath(),a.destFile(dlDir).toPath(),java.nio.file.StandardCopyOption.REPLACE_EXISTING);handler.post(()->verify(a));}catch(Exception e){handler.post(()->Toast.makeText(this,"استفاده از Cache ناموفق بود: "+e.getMessage(),Toast.LENGTH_LONG).show());}}).start();}
 
     private void pickLocal(FileAsset a){Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT);i.addCategory(Intent.CATEGORY_OPENABLE);i.setType("*/*");startActivityForResult(i,REQ_PICK_BASE+a.kind.ordinal());}
-    @Override protected void onActivityResult(int r,int result,Intent data){super.onActivityResult(r,result,data);if(result!=RESULT_OK||data==null||data.getData()==null)return;if(r==REQ_IMPORT_PACK){importZip(data.getData());return;}int ord=r-REQ_PICK_BASE;if(ord<0||ord>=FileAsset.Kind.values().length)return;FileAsset a=find(FileAsset.Kind.values()[ord]);new Thread(()->copy(a,data.getData())).start();}
-    private void copy(FileAsset a,Uri uri){File tmp=new File(dlDir,a.kind.fileName+".selecting");try(InputStream in=getContentResolver().openInputStream(uri);OutputStream out=new FileOutputStream(tmp)){byte[]b=new byte[65536];int n;while((n=in.read(b))!=-1)out.write(b,0,n);Files.move(tmp.toPath(),a.destFile(dlDir).toPath(),java.nio.file.StandardCopyOption.REPLACE_EXISTING);handler.post(()->{a.state=FileAsset.State.READY_LOCAL;a.totalBytes=a.destFile(dlDir).length();render(a);refreshSummary();});}catch(Exception e){tmp.delete();handler.post(()->{a.state=FileAsset.State.FAILED;a.lastError="کپی فایل ممکن نشد: "+e.getMessage();render(a);});}}
-    private void useCached(FileAsset a){new Thread(()->{try{Files.copy(a.cacheFile(cacheDir).toPath(),a.destFile(dlDir).toPath(),java.nio.file.StandardCopyOption.REPLACE_EXISTING);a.totalBytes=a.destFile(dlDir).length();handler.post(()->{a.state=FileAsset.State.READY_DOWNLOADED;render(a);refreshSummary();});}catch(Exception e){handler.post(()->{a.state=FileAsset.State.FAILED;a.lastError=e.getMessage();render(a);});}}).start();}
+    private void packDialog(){new AlertDialog.Builder(this).setTitle("Bootstrap Pack").setItems(new String[]{"ساخت Pack از فایل‌های آماده","وارد کردن Pack"},(d,w)->{if(w==0){Intent i=new Intent(Intent.ACTION_CREATE_DOCUMENT);i.setType("application/zip");i.putExtra(Intent.EXTRA_TITLE,"dsh-bootstrap-pack.zip");startActivityForResult(i,REQ_EXPORT_PACK);}else{Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT);i.addCategory(Intent.CATEGORY_OPENABLE);i.setType("application/zip");startActivityForResult(i,REQ_IMPORT_PACK);}}).show();}
+
+    @Override protected void onActivityResult(int requestCode,int resultCode,Intent data){super.onActivityResult(requestCode,resultCode,data);if(resultCode!=RESULT_OK||data==null||data.getData()==null)return;if(requestCode==REQ_IMPORT_PACK){new Thread(()->{BootstrapPack.Result r=BootstrapPack.importPack(getContentResolver(),data.getData(),dlDir,assets);handler.post(()->{Toast.makeText(this,r.message,Toast.LENGTH_LONG).show();refreshAll(false);});}).start();return;}if(requestCode==REQ_EXPORT_PACK){new Thread(()->{try{BootstrapPack.exportPack(getContentResolver(),data.getData(),dlDir,assets);handler.post(()->Toast.makeText(this,"Bootstrap Pack ساخته شد ✓",Toast.LENGTH_LONG).show());}catch(Exception e){handler.post(()->Toast.makeText(this,"ساخت Pack ناموفق بود: "+e.getMessage(),Toast.LENGTH_LONG).show());}}).start();return;}int ord=requestCode-REQ_PICK_BASE;if(ord<0||ord>=FileAsset.Kind.values().length)return;FileAsset a=find(FileAsset.Kind.values()[ord]);if(a==null)return;new Thread(()->{try{File tmp=new File(dlDir,a.kind.fileName+".selecting");try(java.io.InputStream in=getContentResolver().openInputStream(data.getData());java.io.OutputStream out=new java.io.FileOutputStream(tmp)){if(in==null)throw new IllegalStateException("فایل قابل خواندن نیست");byte[]b=new byte[1024*1024];int n;while((n=in.read(b))!=-1)out.write(b,0,n);}java.nio.file.Files.move(tmp.toPath(),a.destFile(dlDir).toPath(),java.nio.file.StandardCopyOption.REPLACE_EXISTING);ProvisionStore.of(this).reset(a.kind);handler.post(()->verify(a));}catch(Exception e){handler.post(()->Toast.makeText(this,"انتخاب فایل ناموفق بود: "+e.getMessage(),Toast.LENGTH_LONG).show());}}).start();}
+
+    private void mirrorDialog(FileAsset.Kind kind){ProvisionStore st=ProvisionStore.of(this);List<ProvisionMirrors.Mirror> ms=ProvisionMirrors.forAsset(kind);LinearLayout box=new LinearLayout(this);box.setOrientation(LinearLayout.VERTICAL);box.setPadding(dp(8),dp(4),dp(8),dp(2));TextView info=text("وضعیت Mirrorها با تست واقعی HTTP مشخص می‌شود. Mirror سبز در حال حاضر پاسخ می‌دهد؛ بهترین گزینه بر اساس latency پیشنهاد می‌شود.",12,Ui.textSecondary(this),false);box.addView(info);LinearLayout list=new LinearLayout(this);list.setOrientation(LinearLayout.VERTICAL);box.addView(list,margin(8));AlertDialog dialog=new AlertDialog.Builder(this).setTitle("انتخاب Mirror  •  "+kind.displayName).setView(box).setNegativeButton("بستن",null).create();for(ProvisionMirrors.Mirror m:ms)addMirrorRow(list,dialog,kind,m,st);dialog.show();}
+    private void addMirrorRow(LinearLayout list,AlertDialog dialog,FileAsset.Kind kind,ProvisionMirrors.Mirror m,ProvisionStore st){LinearLayout row=new LinearLayout(this);row.setGravity(Gravity.CENTER_VERTICAL);row.setPadding(0,dp(8),0,dp(8));LinearLayout texts=new LinearLayout(this);texts.setOrientation(LinearLayout.VERTICAL);TextView name=text(m.name,14,Ui.text(this),true);TextView sub=text(m.host+"  •  در حال تست…",11,Ui.textSecondary(this),false);texts.addView(name);texts.addView(sub,margin(2));row.addView(texts,new LinearLayout.LayoutParams(0,-2,1));Button use=outline("انتخاب");use.setEnabled(false);use.setOnClickListener(v->{st.setMirror(kind,m.id);dialog.dismiss();refreshRemoteSizes();refreshAll(false);});row.addView(use);list.addView(row);new Thread(()->{ProvisionMirrors.Health h=ProvisionMirrors.check(m,kind);handler.post(()->{sub.setText(h.ok?"✓ در دسترس  •  "+h.latencyMs+" ms":"✕ در دسترس نیست  •  "+(h.error==null?"خطای شبکه":h.error));sub.setTextColor(h.ok?Ui.PRIMARY:Color.rgb(210,55,55));use.setEnabled(h.ok);if(h.ok&&m.id.equals(st.mirror(kind)))use.setText("✓ انتخاب شده");});}).start();}
+
+    private void customUrlDialog(FileAsset.Kind k){
+        ProvisionStore st=ProvisionStore.of(this); EditText e=new EditText(this); e.setSingleLine(true); e.setHint("https://..."); e.setText(st.customUrl(k));
+        new AlertDialog.Builder(this).setTitle("URL سفارشی • "+k.displayName).setMessage("اگر یک لینک مستقیم و قابل اعتماد دارید، این منبع برای همین فایل استفاده می‌شود و Mirror انتخاب‌شده نادیده گرفته می‌شود.").setView(e).setPositiveButton("ذخیره",(d,w)->{st.setCustomUrl(k,e.getText().toString().trim());refreshRemoteSizes();}).setNeutralButton("پاک کردن",(d,w)->{st.setCustomUrl(k,"");refreshRemoteSizes();}).setNegativeButton("انصراف",null).show();
+    }
+
+    private void whyDialog(FileAsset.Kind k){new AlertDialog.Builder(this).setTitle("چرا این فایل لازم است؟").setMessage(k.purpose+"\n\nاین برنامه فقط برای دستگاه‌های ARM64/AArch64 ساخته شده و این جزء بخشی از زنجیره اجرای محیط لینوکسی مستقل برنامه است.").setPositiveButton("متوجه شدم",null).show();}
+    private void verifyAllThenStart(){
+        new Thread(()->{
+            ProvisionStore st=ProvisionStore.of(this); FileAsset bad=null; ProvisionVerifier.Result badResult=null;
+            for(FileAsset a:assets){ if(st.status(a.kind)!=ProvisionStore.Status.READY) continue; ProvisionVerifier.Result r=ProvisionVerifier.verify(a.kind,a.destFile(dlDir),st.sha256(a.kind)); if(!r.ok){bad=a;badResult=r;break;} st.sha256(a.kind,r.sha256); }
+            FileAsset finalBad=bad; ProvisionVerifier.Result finalResult=badResult;
+            handler.post(()->{ if(finalBad!=null){ st.status(finalBad.kind,ProvisionStore.Status.FAILED); st.error(finalBad.kind,finalResult.message); refreshAll(false); new AlertDialog.Builder(this).setTitle("فایل خراب یا ناقص است").setMessage(finalBad.kind.displayName+"\n\n"+finalResult.message).setPositiveButton("دانلود مجدد",(d,w)->redownload(finalBad)).setNegativeButton("انصراف",null).show(); } else startSetup(); });
+        }).start();
+    }
+    private void startSetup(){startActivity(new Intent(this,SetupActivity.class));finish();}
+    private boolean allReady(){ProvisionStore st=ProvisionStore.of(this);for(FileAsset a:assets)if(st.status(a.kind)!=ProvisionStore.Status.READY)return false;return true;}
     private FileAsset find(FileAsset.Kind k){for(FileAsset a:assets)if(a.kind==k)return a;return null;}
+    private boolean hasNetwork(){try{ConnectivityManager cm=(ConnectivityManager)getSystemService(CONNECTIVITY_SERVICE);NetworkInfo n=cm.getActiveNetworkInfo();return n!=null&&n.isConnected();}catch(Exception e){return true;}}
+    private long estimateInstallExtra(){long total=0;for(FileAsset a:assets){if(a.kind==FileAsset.Kind.ROOTFS)total+=120L*1024*1024;else if(a.kind==FileAsset.Kind.NODE)total+=120L*1024*1024;else total+=8L*1024*1024;}return total;}
+    private String formatBytes(long n){if(n<0)return "—";if(n>=1073741824L)return String.format(java.util.Locale.US,"%.2f GB",n/1073741824.0);if(n>=1048576L)return String.format(java.util.Locale.US,"%.1f MB",n/1048576.0);if(n>=1024L)return String.format(java.util.Locale.US,"%.0f KB",n/1024.0);return n+" B";}
+    private String formatEta(long sec){if(sec<60)return sec+" ثانیه";long m=sec/60;if(m<60)return m+" دقیقه";return (m/60)+" ساعت و "+(m%60)+" دقیقه";}
+    private void add(CardHolder h,String s,View.OnClickListener l){Button b=outline(s);b.setOnClickListener(l);LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,-2,1);p.rightMargin=dp(6);h.actionRow.addView(b,p);}
 
-    private void verify(FileAsset a){new Thread(()->{boolean ok=false;String err=null;try{long n=a.destFile(dlDir).length();if(n<1024)throw new IOException("فایل خالی یا ناقص است");try(FileInputStream in=new FileInputStream(a.destFile(dlDir))){byte[] h=new byte[8];int r=in.read(h);if(r<2)throw new IOException("header ناقص است");}ok=true;}catch(Exception e){err=e.getMessage();}boolean good=ok;handler.post(()->{if(good){Toast.makeText(this,"فایل سالم به نظر می‌رسد ✓",Toast.LENGTH_SHORT).show();}else{a.state=FileAsset.State.FAILED;a.lastError="Verify ناموفق: "+err;render(a);refreshSummary();new AlertDialog.Builder(this).setTitle("فایل خراب یا ناقص است").setMessage("این فایل اعتبارسنجی اولیه را رد کرد. پیشنهاد می‌شود دوباره دانلود شود.").setPositiveButton("دانلود مجدد",(d,w)->{a.destFile(dlDir).delete();a.state=FileAsset.State.NOT_READY;startDownload(a);}).setNegativeButton("بعداً",null).show();}});}).start();}
-
-    private void customUrl(FileAsset a){EditText e=new EditText(this);e.setHint("https://...");if(a.customUrl!=null)e.setText(a.customUrl);new AlertDialog.Builder(this).setTitle("منبع سفارشی").setMessage("برای این فایل یک URL مستقیم وارد کنید.").setView(e).setPositiveButton("ذخیره و دانلود",(d,w)->{a.customUrl=e.getText().toString().trim();startDownload(a);}).setNegativeButton("انصراف",null).show();}
-
-    private void showAdvanced(){new AlertDialog.Builder(this).setTitle("Advanced Setup").setMessage("حالت پیشرفته برای کنترل منبع فایل‌ها و عملیات Bootstrap است. Mirrorها در این بخش قابل مدیریت‌اند؛ منبع سفارشی هر فایل نیز از کارت همان فایل در دسترس است.").setMultiChoiceItems(new String[]{"نمایش گزینه‌های تخصصی روی کارت‌ها","دانلود موازی فایل‌ها","تلاش مجدد خودکار پس از خطای شبکه"},null,null).setPositiveButton("انجام شد",null).show();}
-
-    private void exportPack(){new Thread(()->{try{File out=new File(getExternalFilesDir(null),"dsh-bootstrap-pack.zip");try(ZipOutputStream z=new ZipOutputStream(new FileOutputStream(out))){for(FileAsset a:assets){if(!a.isReady())continue;File f=a.destFile(dlDir);z.putNextEntry(new ZipEntry(a.kind.fileName));try(InputStream in=new FileInputStream(f)){byte[]b=new byte[65536];int n;while((n=in.read(b))!=-1)z.write(b,0,n);}z.closeEntry();}}handler.post(()->Toast.makeText(this,"Bootstrap Pack ساخته شد: "+out.getAbsolutePath(),Toast.LENGTH_LONG).show());}catch(Exception e){handler.post(()->Toast.makeText(this,"ساخت Pack ناموفق: "+e.getMessage(),Toast.LENGTH_LONG).show());}}).start();}
-    private void importPack(){Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT);i.addCategory(Intent.CATEGORY_OPENABLE);i.setType("application/zip");startActivityForResult(i,REQ_IMPORT_PACK);}
-    private void importZip(Uri uri){new Thread(()->{try(ZipInputStream z=new ZipInputStream(getContentResolver().openInputStream(uri))){ZipEntry e;while((e=z.getNextEntry())!=null){for(FileAsset a:assets)if(a.kind.fileName.equals(e.getName())){File f=a.destFile(dlDir);try(OutputStream out=new FileOutputStream(f)){byte[]b=new byte[65536];int n;while((n=z.read(b))!=-1)out.write(b,0,n);}a.state=FileAsset.State.READY_LOCAL;a.totalBytes=f.length();}z.closeEntry();}handler.post(()->{for(FileAsset a:assets)render(a);refreshSummary();Toast.makeText(this,"Bootstrap Pack وارد شد",Toast.LENGTH_SHORT).show();});}catch(Exception e){handler.post(()->Toast.makeText(this,"وارد کردن Pack ناموفق: "+e.getMessage(),Toast.LENGTH_LONG).show());}}).start();}
+    private LinearLayout panel(){LinearLayout v=new LinearLayout(this);v.setOrientation(LinearLayout.VERTICAL);GradientDrawable g=new GradientDrawable();g.setColor(Ui.bg(this));g.setCornerRadius(dp(18));g.setStroke(dp(1),Ui.border(this));v.setBackground(g);int p=dp(16);v.setPadding(p,p,p,p);return v;}
+    private TextView text(String s,float size,int color,boolean bold){TextView v=new TextView(this);v.setText(s);v.setTextSize(size);v.setTextColor(color);if(bold)v.setTypeface(Typeface.DEFAULT,Typeface.BOLD);return v;}
+    private Button primary(String s){Button b=Ui.primaryButton(this,s);return b;}
+    private Button outline(String s){Button b=Ui.outlineButton(this,s);b.setTextSize(13);return b;}
+    private LinearLayout.LayoutParams margin(int top){LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);p.topMargin=dp(top);return p;}
+    private int dp(int n){return Ui.dp(this,n);}
 }
