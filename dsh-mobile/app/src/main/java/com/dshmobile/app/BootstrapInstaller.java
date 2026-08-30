@@ -557,20 +557,6 @@ public final class BootstrapInstaller {
         if (!tmp.renameTo(dest)) {
             throw new IOException("Cannot write " + dest);
         }
-    }
-
-    private HttpURLConnection open(String url) throws IOException {
-        HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
-        conn.setConnectTimeout(CONNECT_TIMEOUT);
-        conn.setReadTimeout(READ_TIMEOUT);
-        conn.setInstanceFollowRedirects(true);
-        conn.setRequestProperty("User-Agent", "dsh-mobile/1.0");
-        int code = conn.getResponseCode();
-        if (code >= 400) {
-            throw new IOException("HTTP " + code + ": " + url);
-        }
-        return conn;
-    }
 
     private static String fetchText(String url) throws IOException {
         HttpURLConnection conn = open(url);
